@@ -17,7 +17,7 @@ myApiKey = 'nmrs_28Cblahblah'
 myMetric = '5476250826738809221'
 
 nr = Numerous.new(myApiKey)
-m = nr.metric(xyzID)
+m = nr.metric(myMetric)
 
 m.write(33)
 
