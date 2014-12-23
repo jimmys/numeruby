@@ -88,7 +88,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20141223.1'
+    VersionString = '20141223.2'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -123,9 +123,8 @@ class NumerousClientInternals
 
         appendThis = ""
         path = info[:path]
-# XXX come back and see if whichOp is ever really a string
-        if info[whichOp.to_sym]
-            opi = info[whichOp.to_sym]
+        if info[whichOp]
+            opi = info[whichOp]
             opi.each do |k, v|
                 if k == :appendPath
                     appendThis = v
@@ -139,6 +138,21 @@ class NumerousClientInternals
         rslt[:basePath] = (path + appendThis) % substitutions
         return rslt
     end
+
+    # compute a multipart boundary string; excessively paranoid
+    BChars = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".b
+    BCharsLen = BChars.length
+
+    def makeboundary(s)
+        # Just try something fixed, and if it is no good extend it with random
+        b = "RoLlErCaSeDbOuNdArY8675309".b
+        while s.include? b
+            b += BChars[rand(BCharsLen)]
+        end
+        return b
+    end
+    private :makeboundary
+
 
     # ALL api exchanges with the Numerous server go through here except
     # for getRedirect() which is a special case (hack) for photo URLs 
@@ -185,8 +199,15 @@ class NumerousClientInternals
             rq['content-type'] = 'application/json'
             rq.body = JSON.generate(jdict)
         elsif multipart
-            # XXX technically boundary should be figured out / checked
-            boundary = "IWneTAhlelTLoiwvneWIhneArYeeIlWlaoswBorn3x1y4z1z5y9"
+            # the data in :f is either a raw string OR a readable file
+            begin
+                f = multipart[:f]
+                img = f.read
+            rescue NoMethodError
+                img = f
+            end
+            boundary = makeboundary(img)
+
             rq["content-type"] = "multipart/form-data; boundary=#{boundary}"
             d = []
             d << "--#{boundary}\r\n"
@@ -197,13 +218,6 @@ class NumerousClientInternals
             d << "Content-Transfer-Encoding: binary\r\n"
             d << "Content-Type: #{multipart[:mimeType]}\r\n"
             d << "\r\n"
-            # the data in :f is either a raw string OR a readable file
-            begin
-                f = multipart[:f]
-                img = f.read
-            rescue NoMethodError
-                img = f
-            end
             d << img + "\r\n"
             d << "--#{boundary}--\r\n"
             rq.body = d.join
