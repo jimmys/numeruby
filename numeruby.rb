@@ -60,6 +60,7 @@ end
 # of talking to the numerous server, dealing with chunked APIs, etc.
 #
 class NumerousClientInternals
+
     def initialize(apiKey, server:'api.numerousapp.com')
         @serverName = server
         @auth = { user: apiKey, password: "" }
@@ -71,7 +72,10 @@ class NumerousClientInternals
                        " (Ruby #{RUBY_VERSION}) NumerousAPI/v2"
 
         @debugLevel = 0
+        @chunkedCounter = 0    # XXX purely for verification/testing/debug
     end
+    attr_accessor :agentString
+    attr_accessor :chunkedCounter # XXX take this out later
 
     def debug(lvl=1)
         prev = @debugLevel
@@ -247,6 +251,9 @@ class NumerousClientInternals
 
         while nextURL
             # get a chunk from the server
+            @chunkedCounter += 1   # XXX this is just instrumentation
+
+
             # XXX in the python version we caught various exceptions and
             #     attempted to translate them into something meaningful
             #     (e.g., if a metric got deleted while you were iterating)
@@ -262,8 +269,8 @@ class NumerousClientInternals
                 list.each { |i| block.call i }
             end
         end
+        return nil     # the subclasses return (should return) their own self
     end
-
 end
 
 
@@ -273,65 +280,40 @@ class Numerous  < NumerousClientInternals
 
     APIInfo = {
       # POST to this to create a metric
-      create: {
-        path: '/v1/metrics',
-        POST: {
-          successCodes: [ 201 ]
-        }
+      create: { 
+          path: '/v1/metrics',
+          POST: { successCodes: [ 201 ] }
       },
 
       # GET a users metric collection
-      metricsCollection: {
-        path: '/v2/users/%{userId}/metrics',
-        defaults: { 
-            userId: 'me'            # default userId meaning "myself"
-        },
-        GET: {
-            next: 'nextURL',
-            list: 'metrics'
-        }
+      metricsCollection: { 
+          path: '/v2/users/%{userId}/metrics',
+          defaults: { userId: 'me' },
+          GET: { next: 'nextURL', list: 'metrics' }
       },
 
       # subscriptions at the user level
       subscriptions: {
-        path: '/v2/users/%{userId}/subscriptions',
-        defaults: { 
-            userId: 'me'            # default userId meaning "myself"
-        },
-        GET: {
-            next: 'nextURL',
-            list: 'subscriptions'
-        }
+          path: '/v2/users/%{userId}/subscriptions',
+          defaults: { userId: 'me' },
+          GET: { next: 'nextURL', list: 'subscriptions' }
       },
 
       # user info
       user: {
-        path: '/v1/users/%{userId}',
-        defaults: { 
-            userId: 'me'            # default userId meaning "myself"
-        },
-        photo: {
-            appendPath: '/photo',
-            httpMethod: :POST,
-            successCodes: [ 201 ]
-        }
+          path: '/v1/users/%{userId}',
+          defaults: { userId: 'me' },
+          photo: { appendPath: '/photo', httpMethod: :POST, successCodes: [201] }
       },
 
       # the most-popular metrics list
       popular: {
-        path: '/v1/metrics/popular?count=%{count}',
-        defaults: { 
-            count: 10
-        }
-        # no entry needed for GET because no special codes etc
+          path: '/v1/metrics/popular?count=%{count}',
+          defaults: { count: 10 }
+          # no entry needed for GET because no special codes etc
       }
     }
 
-    # iterator for the entire metrics collection. 
-    # By default gets your own metrics list but you can specify other users
-    def metrics(userId:nil, &block)
-        chunkedIterator(APIInfo[:metricsCollection], { userId: userId }, block)
-    end
 
     # return User info (Default is yourself)
     def user(userId:nil)
@@ -342,10 +324,24 @@ class Numerous  < NumerousClientInternals
     def userPhoto()
     end
 
+    # various iterators for invoking a block on various collections.
+    # The "return self" is by convention for chaining though not clear how useful
+
+    # metrics: all metrics for the given user (default is your own)
+    def metrics(userId:nil, &block)
+        chunkedIterator(APIInfo[:metricsCollection], { userId: userId }, block)
+        return self
+    end
+
+    # subscriptions: all the subscriptions for the given user
     def subscriptions(userId:nil, &block)
         chunkedIterator(APIInfo[:subscriptions], { userId: userId }, block)
+        return self
     end    
 
+
+
+    # most popular metrics ... not an iterator
     def mostPopular(count:nil)
         api = makeAPIcontext(APIInfo[:popular], :GET, {count: count})
         return simpleAPI(api)
@@ -359,7 +355,6 @@ class Numerous  < NumerousClientInternals
 
     def createMetric(label, value:nil, attrs:{})
         api = makeAPIcontext(APIInfo[:create], :POST)
-        puts api
 
         j = {}
         attrs.each { |k, v| j[k] = v }
@@ -386,7 +381,12 @@ class NumerousMetric < NumerousClientInternals
         @id = id
         @nr = nr
     end
+    attr_accessor :id
 
+    # could have just made an accessor, but I prefer it this way for this one
+    def getServer()
+        return @nr
+    end
 
     APIInfo = {
       # read/update/delete a metric
@@ -398,7 +398,7 @@ class NumerousMetric < NumerousClientInternals
         }
       },
 
-      # you can GET, POST, or DELETE events
+      # you can GET or POST the events collection
       events: {
         path: '/v1/metrics/%{metricId}/events',
         GET: {
@@ -407,9 +407,13 @@ class NumerousMetric < NumerousClientInternals
         },
         POST: {
             successCodes: [ 201 ]
-        },
+        }
+      },
+      # and you can GET or DELETE an individual event
+      # (no entry made for GET because all standard parameters on that one)
+      event: {
+        path: '/v1/metrics/%{metricId}/events/%{eventID}',
         DELETE: {
-            appendPath: '/%{eventID}',
             successCodes: [ 204 ]     # No Content is the expected return
         }
       },
@@ -423,7 +427,7 @@ class NumerousMetric < NumerousClientInternals
         }
       },
 
-      # GET or POST or DELETE interactions
+      # you can GET or POST the interactions collection
       interactions: {
         path: '/v2/metrics/%{metricId}/interactions',
         GET: {
@@ -432,9 +436,14 @@ class NumerousMetric < NumerousClientInternals
         },
         POST: {
             successCodes: [ 201 ]
-        },
+
+        }
+      },
+
+      # and you can GET or DELETE an individual interaction
+      interaction: {
+        path: '/v2/metrics/%{metricId}/interactions/%{item}',
         DELETE: {
-            appendPath: '/%{item}',
             successCodes: [ 204 ]     # No Content is the expected return
         }
       },
@@ -515,8 +524,18 @@ class NumerousMetric < NumerousClientInternals
     %w(events stream interactions subscriptions).each do |w|
         define_method(w) do | &block |
             @nr.chunkedIterator(APIInfo[w.to_sym], {metricId:@id}, block)
+            return self
         end
     end
+
+    # read a single event or single interaction
+    %w(event interaction).each do |w|
+        define_method(w) do | evId |
+            api = getAPI(w.to_sym, :GET, {eventID:evId})
+            return @nr.simpleAPI(api)
+        end
+    end
+
 
     # This is an individual subscription -- namely, yours.
     # normal users can never see anything other than their own
@@ -624,6 +643,9 @@ class NumerousMetric < NumerousClientInternals
         return writeInteraction(j)
     end
 
+    def photo(iTBD, mimeType:'image/jpeg')
+    end
+
     # various deletion methods.
     # NOTE: If you try to delete something that isn't there, you will
     #       see an exception but the "error" code will be 200/OK.
@@ -639,15 +661,37 @@ class NumerousMetric < NumerousClientInternals
     end
 
     def eventDelete(evID)
-        api = getAPI(:events, :DELETE, {eventID:evID})
+        api = getAPI(:event, :DELETE, {eventID:evID})
         v = @nr.simpleAPI(api)
         return nil
     end
 
     def interactionDelete(interID)
-        api = getAPI(:interactions, :DELETE, {item:interID})
+        api = getAPI(:interaction, :DELETE, {item:interID})
         v = @nr.simpleAPI(api)
         return nil
+    end
+
+    # the photoURL returned by the server in the metrics parameters
+    # still requires authentication to fetch (it then redirects to the "real"
+    # static photo URL). This function goes one level deeper and
+    # returns you an actual, publicly-fetchable, photo URL. I have not
+    # yet figured out how to tease this out without doing the full-on GET
+    # (using HEAD on a photo is rejected by the server)
+    def photoURL
+    end
+
+    # some convenience functions ... but all these do is query the
+    # server (read the metric) and return the given field... you could
+    # do the very same yourself. So I only implemented a few useful ones.
+    def label
+        v = read(dictionary:true)
+        return v['label']
+    end
+
+    def webURL
+        v = read(dictionary:true)
+        return v['links']['web']
     end
 
     # be 100% sure, because this cannot be undone. Deletes a metric
