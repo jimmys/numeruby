@@ -4,7 +4,9 @@ A ruby class implementing the [NumerousApp](http://www.numerousapp.com) [APIs](h
 
 ## Development Status
 
-Works, passes all my tests. Not yet packaged as a gem but you can just take numerous.rb and put it into your RUBYLIB path somewhere and it should work.
+Works, passes all my tests. 
+
+Packaged as a gem under the name "numerousapp" on rubygems.org
 
 ## Getting started
 
