@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 require 'optparse'
-require 'numerous'
+require 'numerousapp'
 require 'net/http'
 require 'uri'
 
