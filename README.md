@@ -1,4 +1,4 @@
-# Numeruby - Ruby NumerousApp API
+# Ruby NumerousApp API
 
 A ruby "translation" of the "Nappy" (numerous.py) python class implementing
 the [NumerousApp](http://www.numerousapp.com) [APIs](http://docs.numerous.apiary.io).
@@ -12,6 +12,7 @@ I'm putting this up here "early" just to signal that it's in process. This versi
 Example code:
 
 ```
+require 'numerous'
 
 myApiKey = 'nmrs_28Cblahblah'
 myMetric = '5476250826738809221'

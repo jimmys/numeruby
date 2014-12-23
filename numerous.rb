@@ -72,10 +72,8 @@ class NumerousClientInternals
                        " (Ruby #{RUBY_VERSION}) NumerousAPI/v2"
 
         @debugLevel = 0
-        @chunkedCounter = 0    # XXX purely for verification/testing/debug
     end
     attr_accessor :agentString
-    attr_accessor :chunkedCounter # XXX take this out later
 
     def debug(lvl=1)
         prev = @debugLevel
@@ -90,7 +88,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20141216.x'    
+    VersionString = '20141223.1'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -113,8 +111,7 @@ class NumerousClientInternals
         # Build the substitutions from the defaults (if any) and non-nil kwargs.
         # Note: we are carefully making copies of the underlying dictionaries
         #       so you get your own private context returned to you
-        substitutions = {}
-        (info[:defaults]||{}).each { |k, v| substitutions[k] = v }
+        substitutions = (info[:defaults]||{}).clone
 
         # copy any supplied non-nil kwargs (nil ones defer to defaults)
         kwargs.each { |k, v| if v then substitutions[k] = v end }
@@ -187,6 +184,29 @@ class NumerousClientInternals
         if jdict
             rq['content-type'] = 'application/json'
             rq.body = JSON.generate(jdict)
+        elsif multipart
+            # XXX technically boundary should be figured out / checked
+            boundary = "IWneTAhlelTLoiwvneWIhneArYeeIlWlaoswBorn3x1y4z1z5y9"
+            rq["content-type"] = "multipart/form-data; boundary=#{boundary}"
+            d = []
+            d << "--#{boundary}\r\n"
+            d << "Content-Disposition: form-data;"
+            d << ' name="image";'
+            d << ' filename="image.img";'
+            d << "\r\n"
+            d << "Content-Transfer-Encoding: binary\r\n"
+            d << "Content-Type: #{multipart[:mimeType]}\r\n"
+            d << "\r\n"
+            # the data in :f is either a raw string OR a readable file
+            begin
+                f = multipart[:f]
+                img = f.read
+            rescue NoMethodError
+                img = f
+            end
+            d << img + "\r\n"
+            d << "--#{boundary}--\r\n"
+            rq.body = d.join
         end
 
         if @debugLevel > 0
@@ -243,6 +263,25 @@ class NumerousClientInternals
         return rj
     end
 
+    # This is a special case ... a bit of a hack ... to determine
+    # the underlying (redirected-to) URL for metric photos. The issue
+    # is that sometimes we want to get at the no-auth-required actual
+    # image URL (vs the metric API endpoint for getting a photo)
+    #
+    # This does that by (unfortunately) getting the actual image and
+    # then using the r.url feature of requests library to get at what
+    # the final (actual/real) URL was.
+
+    def getRedirect(url)
+        rq = MethMap[:GET].new(url)
+        rq.basic_auth(@auth[:user], @auth[:password])
+        rq['user-agent'] = @agentString
+
+        resp = @http.request(rq)
+        return resp.header['Location']
+    end
+
+
     # generic iterator for chunked APIs
     def chunkedIterator(info, subs={}, block)
         api = makeAPIcontext(info, :GET, subs)
@@ -251,15 +290,12 @@ class NumerousClientInternals
 
         while nextURL
             # get a chunk from the server
-            @chunkedCounter += 1   # XXX this is just instrumentation
-
 
             # XXX in the python version we caught various exceptions and
             #     attempted to translate them into something meaningful
             #     (e.g., if a metric got deleted while you were iterating)
             #     But here we're just letting the whatever-exceptions filter up
             v = simpleAPI(api, url:nextURL)
-
 
             list = v[api[:list]]
             nextURL = v[api[:next]]
@@ -321,11 +357,21 @@ class Numerous  < NumerousClientInternals
         return simpleAPI(api)
     end
 
-    def userPhoto()
+    # set the user's photo
+    # imageDataOrReadable is the raw binary image data OR
+    # an object with a read method (e.g., an open file)
+    # mimeType defaults to image/jpeg but you can specify as needed
+    #
+    # NOTE: The server enforces a size limit (I don't know it)
+    #       and you will get an HTTP "Too Large" error if you exceed it
+    def userPhoto(imageDataOrReadable, mimeType:'image/jpeg')
+        api = makeAPIcontext(APIInfo[:user], :photo)
+        mpart = { :f => imageDataOrReadable, :mimeType => mimeType }
+        return simpleAPI(api, multipart: mpart)
     end
 
     # various iterators for invoking a block on various collections.
-    # The "return self" is by convention for chaining though not clear how useful
+    # The "return self" is convention for chaining though not clear how useful
 
     # metrics: all metrics for the given user (default is your own)
     def metrics(userId:nil, &block)
@@ -356,8 +402,7 @@ class Numerous  < NumerousClientInternals
     def createMetric(label, value:nil, attrs:{})
         api = makeAPIcontext(APIInfo[:create], :POST)
 
-        j = {}
-        attrs.each { |k, v| j[k] = v }
+        j = attrs.clone
         j['label'] = label
         if value
             j['value'] = value
@@ -643,7 +688,17 @@ class NumerousMetric < NumerousClientInternals
         return writeInteraction(j)
     end
 
-    def photo(iTBD, mimeType:'image/jpeg')
+    # set the background image for a metric
+    # imageDataOrReadable is the raw binary image data OR
+    # an object with a read method (e.g., an open file)
+    # mimeType defaults to image/jpeg but you can specify as needed
+    #
+    # NOTE: The server enforces a size limit (I don't know it)
+    #       and you will get an HTTP "Too Large" error if you exceed it
+    def photo(imageDataOrReadable, mimeType:'image/jpeg')
+        api = getAPI(:photo, :POST)
+        mpart = { :f => imageDataOrReadable, :mimeType => mimeType }
+        return @nr.simpleAPI(api, multipart: mpart)
     end
 
     # various deletion methods.
@@ -679,6 +734,15 @@ class NumerousMetric < NumerousClientInternals
     # yet figured out how to tease this out without doing the full-on GET
     # (using HEAD on a photo is rejected by the server)
     def photoURL
+        v = read(dictionary:true)
+        begin
+            phurl = v.fetch('photoURL')
+            return @nr.getRedirect(phurl)
+        rescue KeyError
+            return nil
+        end
+        # never reached
+        return nil
     end
 
     # some convenience functions ... but all these do is query the

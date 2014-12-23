@@ -1,9 +1,9 @@
 #!/usr/bin/env ruby
 
-
-
 require 'optparse'
-require './numeruby'
+require 'numerous'
+require 'net/http'
+require 'uri'
 
 exitStatus = 0
 $deleteTheseMetrics = []
@@ -269,6 +269,32 @@ def numTests(nr, opts)
         return false
     end
 
+    # write a (one pixel) photo to the metric
+    img = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b".b
+    puts "TESTING::: setting photo"
+    r = m.photo(img)
+
+    # now get the photo URL back
+    phurl = m.photoURL
+    if not phurl
+        puts "FAILED:::: could not read back photo URL"
+        return false
+    end
+
+    # and read the photo and compare it
+    u = URI.parse(phurl)
+    h = Net::HTTP.new(u.host, u.port)
+    h.use_ssl = (u.scheme == "https")
+    rq = Net::HTTP::Get.new(phurl)
+    resp = h.request(rq)
+
+    if img != resp.body
+        puts "FAILED:::: did not get back same image"
+        puts "Image: Length #{img.length} /#{img}/"
+        puts "Reslt: Length #{resp.body.length} /#{resp.body}/"
+        return false
+    end
+    
     # timer testing
 
     mAttrs = {'private' => true, 'kind' => 'timer'}
