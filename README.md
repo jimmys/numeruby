@@ -13,7 +13,8 @@ Packaged as a gem under the name "numerousapp" on rubygems.org
 Example code:
 
 ```
-require 'numerous'
+require 'numerousapp'    # if you installed it as the numerousapp gem
+                         # if you hand-installed this file then 'numerous'
 
 myApiKey = 'nmrs_28Cblahblah'
 myMetric = '5476250826738809221'
