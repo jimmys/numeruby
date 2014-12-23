@@ -1,11 +1,10 @@
 # Ruby NumerousApp API
 
-A ruby "translation" of the "Nappy" (numerous.py) python class implementing
-the [NumerousApp](http://www.numerousapp.com) [APIs](http://docs.numerous.apiary.io).
+A ruby class implementing the [NumerousApp](http://www.numerousapp.com) [APIs](http://docs.numerous.apiary.io).
 
 ## Development Status
 
-I'm putting this up here "early" just to signal that it's in process. This version isn't complete yet though the basic functions work.
+Works, passes all my tests. Not yet packaged as a gem but you can just take numerous.rb and put it into your RUBYLIB path somewhere and it should work.
 
 ## Getting started
 
