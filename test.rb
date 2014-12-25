@@ -77,14 +77,22 @@ def numTests(nr, opts)
     puts "TESTING::: writing a comment"
 
     cmt = "This be a righteously commentatious comment"
-    m.comment(cmt)
+    cId = m.comment(cmt)
     m.interactions do |v| 
         if v['commentBody'] == cmt
             break
         else
+            # it's supposed to be the first one, so we know this is bad
             puts "Got bad comment back: #{v}"
             return false
         end
+    end
+
+    puts "TESTING::: m.interaction(#{cId}) to read the comment back"
+    i = m.interaction(cId)
+    if i['commentBody'] != cmt
+        puts "FAILED:::: got #{i}"
+        return false
     end
 
     # try onlyIf test again, comment should not have changed behavior
@@ -105,6 +113,13 @@ def numTests(nr, opts)
 
     id = m.events { |e| break e['id'] }    # haha/wow what a way to say this
 
+    puts "TESTING::: m.event(#{id}) to read back the value update"
+    e = m.event(id)
+    if e['value'] != testVary+1
+        puts "FAILED:::: Got #{e}"
+        return false
+    end
+
     # delete that altered value write
     m.eventDelete(id)
 
@@ -112,7 +127,18 @@ def numTests(nr, opts)
     if not onlyIfTest(m, testVary, expectX:true)
         return false
     end
-    
+
+    puts "TESTING::: m.event(#{id}) after that id has been deleted"
+    begin
+        e = m.event(id)
+        puts "FAILED:::: Got #{e}"
+        return false
+    rescue NumerousError => x
+        if x.code != 404
+            puts "FAILED:::: Got error but not the expected one. /#{x}/"
+            return false
+        end
+    end
     # test add
     puts ("TESTING::: ADD 1")
     m.write(17)
