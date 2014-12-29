@@ -787,7 +787,7 @@ class NumerousMetric < NumerousClientInternals
 
 
     #
-    # So I had a really nifty %w/.each define_method hack here to generate
+    # So I had a really nifty define_method hack here to generate
     # these methods that follow a simple pattern. Then trying to figure out
     # how to YARD document them was daunting. If it's easy someone needs to
     # show me (I get the impression it's possible with some run time magic
@@ -907,17 +907,12 @@ class NumerousMetric < NumerousClientInternals
     #   Optional (keyword arg). Only creates an event at the server
     #   if the newval is different from the current value. Raises
     #   NumerousMetricConflictError if there is no change in value.
-    #   WARNING: Not atomic at the server; it is still possible to get
-    #   a success code result from this even if your value was already 
-    #   the current value (under simultaneous-update scenarios).
     #
     # @param [Boolean] add
     #   Optional (keyword arg). Sends the "action: ADD"	attribute which
     #   causes the server to ADD newval to the current metric value.
-    #   WARNING: As of Dec 2014 there is still a bug in the server that
-    #   causes ADD operations to not be atomic. Until that bug is fixed
-    #   the semantics of ADD are no different than if you did a read/write
-    #   (as two separate operations) yourself.
+    #   Note that this IS atomic at the server. Two clients doing
+    #   simultaneous ADD operations will get the correct (serialized) result.
     # @param [Boolean] dictionary
     #   If true the entire metric will be returned as a string-key Hash;
     #   else (false/default) the bare number (Fixnum or Float) for the
@@ -1073,9 +1068,8 @@ class NumerousMetric < NumerousClientInternals
     # static photo URL). This function goes one level deeper and
     # returns you an actual, publicly-fetchable, photo URL.
     #
-    # IMPLEMENTATION NOTE: Fetches (and discards) the entire underlying photo,
-    # because that was the easiest way to tease out the target URL from
-    # the Net:HTTP library.
+    # @note Fetches (and discards) the entire underlying photo,
+    #   because that was the easiest way to find the target URL using net/http
     #
     # @return [String, nil] URL. If there is no photo returns nil.
     #
