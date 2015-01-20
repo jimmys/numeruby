@@ -8,21 +8,37 @@ require 'uri'
 exitStatus = 0
 $deleteTheseMetrics = []
 
+def testingMsg(s)
+    puts("TESTING::: #{s}")
+end
+
+def failedMsg(s)
+    puts("FAILED:::: #{s}")
+end
+
+def resultsMsg(s)
+    puts("RESULT:::: #{s}")
+end
+
+def infoMsg(s)
+    puts("::INFO:::: #{s}")
+end
+
 def onlyIfTest(m, v, expectX:true)
 
-    puts "TESTING::: Writing #{v} with onlyIf and expectX:#{expectX}"
+    testingMsg("Writing #{v} with onlyIf and expectX:#{expectX}")
     gotX = false
     begin
         m.write(v, onlyIf:true)
     rescue NumerousMetricConflictError => e
         if not expectX
-            puts "  --- got unexpected exception: #{e.inspect}"
+            failedMsg("got unexpected exception: #{e.inspect}")
         end
         gotX = true
     end
 
     if expectX and not gotX
-        puts "Did got get expected Exception"
+        failedMsg("Did got get expected Exception")
     end
 
     return ((expectX and gotX) or ((not expectX) and (not gotX)))
@@ -31,10 +47,11 @@ end
 
 
 
+
 # Typically the PID is used but can be any integer that 
 # (ideally) isn't always the same
 def numTests(nr, opts)
-    puts "Version under test: #{nr.agentString}"
+    testingMsg("Version under test: #{nr.agentString}")
 
     testVary = opts[:vary]
 
@@ -43,29 +60,77 @@ def numTests(nr, opts)
     end
 
     if not nr.ping
-        puts "Ping failed"
+        failedMsg("Ping failed")
         exit(1)
     end
 
     mVal = 999
     mAttrs = {'private' => true, 'value' => mVal}
-    puts "TESTING::: nr.createMetric(#{mAttrs})"
+    testingMsg("nr.createMetric(#{mAttrs})")
 
-    m = nr.createMetric("TESTXXX-NumerousAPI#{testVary}", attrs:mAttrs)
+    mName = "TESTXXX-NumerousAPI#{testVary}"
+    resultsMsg(mName)
+    m = nr.createMetric(mName, attrs:mAttrs)
     $deleteTheseMetrics.push m
 
-    puts "Created: #{m}"
+    resultsMsg("Created: #{m}")
     if m.read != mVal
-        puts "Wrong value read back #{m.read} should have been #{mVal}"
+        failedMsg("Wrong value read back #{m.read} should have been #{mVal}")
         return false
     end
 
+    testingMsg("Looking up by label using STRING")
+    m2 = nr.metricByLabel(mName, matchType:'STRING')
+    if not m2 or m.read != mVal
+        failedMsg("Didn't find it by label/STRING")
+        return false
+    end
+
+    # test all the variations of ByLabel
+    # make some similar names so we can test 'ONE' and 'BEST'
+
+    middlePart = "XyzzY#{testVary}"
+    endKey="7777"
+    endPart=endKey
+    xxx = []
+    for i in 1..5
+        endPart += "7"
+        xxx[i-1] = endPart
+    end
+
+    # semi-random order on purpose
+    for i in [3, 1, 4, 5, 2]
+        mOneStr =  "TESTXXX#{middlePart}-"+xxx[i-1]
+        $deleteTheseMetrics.push nr.createMetric(mOneStr)
+    end
+
+    begin
+        testingMsg("Looking up using matchType:FIRST")
+        mx = nr.metricByLabel(/#{middlePart}/, matchType:'FIRST')
+        if not mx
+            failedMsg("Didn't get any match")
+        else
+            resultsMsg("Got #{mx.label}")
+        end
+        testingMsg("Looking up duplicate ByLabel with matchType:ONE")
+        mx = nr.metricByLabel(/#{middlePart}/, matchType:'ONE')
+        failedMsg("Failed ... didn't throw exception")
+        return false
+    rescue NumerousMetricConflictError
+        resultsMsg("Correctly caught ConflictError")
+    end
+
+    testingMsg("Looking up using BEST")
+    rx = endKey + "\\d+$"
+    mx = nr.metricByLabel(/#{rx}/,matchType:'BEST')
+    resultsMsg("got BEST: #{mx.label}")
+
     # write a value see if it gets there
 
-    puts "TESTING::: Write #{testVary}"
+    testingMsg("Write #{testVary}")
     m.write testVary
     if m.read != testVary
-        puts "Wrong value read back #{m.read} should have been #{testVary}"
+        failedMsg("Wrong value read back #{m.read} should have been #{testVary}")
         return false
     end
 
@@ -74,7 +139,7 @@ def numTests(nr, opts)
         return false
     end
 
-    puts "TESTING::: writing a comment"
+    testingMsg("writing a comment")
 
     cmt = "This be a righteously commentatious comment"
     cId = m.comment(cmt)
@@ -83,15 +148,15 @@ def numTests(nr, opts)
             break
         else
             # it's supposed to be the first one, so we know this is bad
-            puts "Got bad comment back: #{v}"
+            failedMsg("Got bad comment back: #{v}")
             return false
         end
     end
 
-    puts "TESTING::: m.interaction(#{cId}) to read the comment back"
+    testingMsg("m.interaction(#{cId}) to read the comment back")
     i = m.interaction(cId)
     if i['commentBody'] != cmt
-        puts "FAILED:::: got #{i}"
+        failedMsg("got #{i}")
         return false
     end
 
@@ -113,10 +178,10 @@ def numTests(nr, opts)
 
     id = m.events { |e| break e['id'] }    # haha/wow what a way to say this
 
-    puts "TESTING::: m.event(#{id}) to read back the value update"
+    testingMsg("m.event(#{id}) to read back the value update")
     e = m.event(id)
     if e['value'] != testVary+1
-        puts "FAILED:::: Got #{e}"
+        failedMsg("Got #{e}")
         return false
     end
 
@@ -128,52 +193,52 @@ def numTests(nr, opts)
         return false
     end
 
-    puts "TESTING::: m.event(#{id}) after that id has been deleted"
+    testingMsg("m.event(#{id}) after that id has been deleted")
     begin
         e = m.event(id)
-        puts "FAILED:::: Got #{e}"
+        failedMsg("Got #{e}")
         return false
     rescue NumerousError => x
         if x.code != 404
-            puts "FAILED:::: Got error but not the expected one. /#{x}/"
+            failedMsg("Got error but not the expected one. /#{x}/")
             return false
         end
     end
     # test add
-    puts ("TESTING::: ADD 1")
+    testingMsg("ADD 1")
     m.write(17)
     m.write(1, add:true)
     if m.read != 18
-        puts "*** FAILED: #{m.read(dictionary:true)}"
+        failedMsg("#{m.read(dictionary:true)}")
         return false
     end
 
     # test a bunch of ADDs
-    puts ("TESTING::: MORE ADDs")
+    testingMsg("MORE ADDs")
     m.write(17)
     m.write(3, add:true)
     m.write(-21, add:true)
     
     # should be -1 now
     if m.read != -1
-        puts "*** FAILED: #{m.read(dictionary:true)}"
+        failedMsg("*** FAILED: #{m.read(dictionary:true)}")
         return false
     end
 
     # test error 
-    puts ("TESTING::: Setting an error")
+    testingMsg("Setting an error")
     errText = "This is the error info"
     m.sendError(errText)
 
     e2 = m.interactions { |e| break e['commentBody'] } 
 
     if errText != e2
-        puts("Got #{e2} instead of #{errText}")
+        failedMsg("Got #{e2} instead of #{errText}")
         return false
     end
 
     # update the metric description
-    puts ("TESTING::: Updating metric description and units")
+    testingMsg("Updating metric description and units")
     d = "This is the metric's porpoise in life"
     u = "blivets"
 
@@ -181,13 +246,13 @@ def numTests(nr, opts)
 
     rd = m.read(dictionary:true)["description"]
     if rd != d
-        puts("Got #{rd} expected #{d}")
+        failedMsg("Got #{rd} expected #{d}")
         return false
     end
 
     ru = m.read(dictionary:true)["units"]
     if ru != u
-        puts("Got #{ru} expected #{u}")
+        failedMsg("Got #{ru} expected #{u}")
         return false
     end
 
@@ -197,25 +262,25 @@ def numTests(nr, opts)
 
     ru = m.read(dictionary:true)["units"]
     if ru != u
-        puts("Got #{ru} expected #{u}")
+        failedMsg("Got #{ru} expected #{u}")
         return false
     end
 
 
     # like a metric
-    puts "TESTING::: m.like"
+    testingMsg("m.like")
     m.like
 
     # see if it is there at the top of the stream
     lk = m.stream { |s| break s }
 
     if lk['kind'] != 'like'
-        puts "FAILED:::: got /#{lk}/"
+        failedMsg("got /#{lk}/")
         return false
     end
 
 
-    puts "TESTING::: event deletion... making events"
+    testingMsg("event deletion... making events")
     # more testing of event deletion
     vals = [ 100, 101, 102, 103, 104]
     ids = []
@@ -223,24 +288,24 @@ def numTests(nr, opts)
     vals.each { |i| ids.push(m.write(i,dictionary:true)['id']) }
 
     # current value should be last one sent
-    puts "TESTING::: read back last value"
+    testingMsg("read back last value")
     if m.read != vals[-1] 
-        puts "FAILED:::: Value is #{m.read}"
+        failedMsg("Value is #{m.read}")
         return false
     end
 
-    puts "TESTING::: deleting #{ids[1]}"
+    testingMsg("deleting #{ids[1]}")
     # if we delete a middle value the value should not change
     m.eventDelete(ids[1])
 
-    puts "TESTING::: verifying no change in value"
+    testingMsg("verifying no change in value")
     # current value should be last one sent
     if m.read != vals[-1] 
-        puts "FAILED:::: Value is #{m.read}"
+        failedMsg("Value is #{m.read}")
         return false
     end
 
-    puts "TESTING::: deleting #{ids[1]} again (should fail)"
+    testingMsg("deleting #{ids[1]} again (should fail)")
     gotExpected = false
     begin
         m.eventDelete(ids[1])
@@ -249,61 +314,61 @@ def numTests(nr, opts)
     end
 
     if not gotExpected
-        puts "FAILED:::: did not get expected exception"
+        failedMsg("did not get expected exception")
         return false
     end
 
     # now delete the top (last) event and the value SHOULD change
-    puts "TESTING::: deleting #{ids[-1]}"
+    testingMsg("deleting #{ids[-1]}")
     m.eventDelete(ids[-1])
     # current value should be last one sent
-    puts "TESTING::: appropriate change in value"
+    testingMsg("appropriate change in value")
     if m.read != vals[-2] 
-        puts "FAILED:::: Value is #{m.read}"
+        failedMsg("Value is #{m.read}")
         return false
     end
 
 
     # test comment deletion (interaction deletion)
-    puts "TESTING::: making a comment"
+    testingMsg("making a comment")
 
     cmt = "This is the magic comment string"
     cmtId = m.comment(cmt)
 
     # the comment should be there ... verify
-    puts "TESTING::: verifying it is there"
+    testingMsg("verifying it is there")
     found = false
     m.stream { |s| if s['commentBody'] == cmt; found = true; break; end }
 
     if not found
         # this would be odd, but it's not there
-        puts "FAILED:::: could not find comment we just wrote"
+        failedMsg("could not find comment we just wrote")
         return false
     end
 
     # now delete the comment
-    puts "TESTING::: deleting the comment (#{cmtId})"
+    testingMsg("deleting the comment (#{cmtId})")
     m.interactionDelete(cmtId)
 
     # and the comment should NOT be there ... verify
-    puts "TESTING::: Verifying that it is gone"
+    testingMsg("Verifying that it is gone")
     found = false
     m.stream { |s| if s['commentBody'] == cmt; found = true; break; end }
 
     if found
-        puts "FAILED:::: the comment is still there!"
+        failedMsg("the comment is still there!")
         return false
     end
 
     # write a (one pixel) photo to the metric
     img = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b".b
-    puts "TESTING::: setting photo"
+    testingMsg("setting photo")
     r = m.photo(img)
 
     # now get the photo URL back
     phurl = m.photoURL
     if not phurl
-        puts "FAILED:::: could not read back photo URL"
+        failedMsg("could not read back photo URL")
         return false
     end
 
@@ -315,33 +380,33 @@ def numTests(nr, opts)
     resp = h.request(rq)
 
     if img != resp.body
-        puts "FAILED:::: did not get back same image"
-        puts "Image: Length #{img.length} /#{img}/"
-        puts "Reslt: Length #{resp.body.length} /#{resp.body}/"
+        failedMsg("did not get back same image")
+        failedMsg(" ... Image: Length #{img.length} /#{img}/")
+        failedMsg(" ... Reslt: Length #{resp.body.length} /#{resp.body}/")
         return false
     end
     
     # timer testing
 
     mAttrs = {'private' => true, 'kind' => 'timer'}
-    puts "TESTING::: nr.createMetric(#{mAttrs})"
+    testingMsg("nr.createMetric(#{mAttrs})")
 
     mtmr = nr.createMetric("TESTXXX-TMR-NumerousAPI#{testVary}", attrs:mAttrs)
     $deleteTheseMetrics.push mtmr
-    puts "Created: #{mtmr}"
+    resultsMsg("created #{mtmr}")
 
 
     # just try writing to it, we don't really test that it displays correct
-    puts "TESTING::: writing to timer"
+    testingMsg("writing to timer")
     mtmr.write(123456)
 
     # create a virgin metric to bang on
     mAttrs = {'private' => true}
-    puts "TESTING::: nr.createMetric(#{mAttrs})"
+    testingMsg("nr.createMetric(#{mAttrs})")
 
     mvir = nr.createMetric("TESTXXX-V-NumerousAPI#{testVary}", attrs:mAttrs)
     $deleteTheseMetrics.push mvir
-    puts "Created: #{mvir}"
+    resultsMsg("Created: #{mvir}")
 
     # verify that the collection flavors all work correctly on virgin metric
     gotAny = false
@@ -351,7 +416,7 @@ def numTests(nr, opts)
     mvir.stream { |x| puts x ; gotAny = true }
 
     if gotAny
-        puts "FAILED:::: GOT SOMETHING!"
+        failedMsg("GOT SOMETHING!")
         return false
     end    
 
@@ -367,12 +432,12 @@ def numTests(nr, opts)
         nMetrics = 4      # but this doesn't really test what is intended
     end
 
-    puts "TESTING::: making #{nMetrics} metrics"
+    testingMsg("making #{nMetrics} metrics")
     oneName = 'XXX-DELETEME-XXX'   # we can make them all with the same name
     mAttrs = {'private' => true}
     lotsaMetrics = []
     nMetrics.times do |i|
-        puts "MAKING:::: #{i}"
+        resultsMsg("making #{i}")
         mAttrs['value'] = i
         x = nr.createMetric(oneName, attrs:mAttrs)
         lotsaMetrics.push x
@@ -380,7 +445,7 @@ def numTests(nr, opts)
     end
 
     if lotsaMetrics.length != nMetrics
-        puts "FAILED:::: they didn't all get made"
+        failedMsg("they didn't all get made")
         return false
     end
 
@@ -399,7 +464,7 @@ def numTests(nr, opts)
     end
 
     if n != nMetrics or verified.length != nMetrics
-        puts "FAILED:::: metrics not as expected"
+        failedMsg("metrics not as expected")
         puts "   - here's the ID array -"
         puts verified
         puts "   - - - - - - -"
@@ -417,37 +482,40 @@ def numTests(nr, opts)
         nTimes = 5      # but this doesn't really test anything much
     end
 
-    puts "TESTING::: writing #{nTimes} comments and events"
+    testingMsg("writing #{nTimes} comments and events")
     nTimes.times do |i|
+        if i % 25 == 0
+            infoMsg(" ... progress: #{i}")
+        end
         m.write(i)
         m.comment('this is a comment')
     end
 
-    puts "TESTING::: verifying comment and event count"
+    testingMsg("verifying comment and event count")
 
     n = 0
-    puts "TESTING::: ... events"
+    testingMsg("... events")
     m.events { n += 1 }
 
     if n != nTimes
-        puts "FAILED:::: only got #{n} events"
+        failedMsg("only got #{n} events")
         return false
     end
 
     n = 0
-    puts "TESTING::: ... interactions"
+    testingMsg("... interactions")
     m.interactions { n += 1 }
     if n != nTimes
-        puts "FAILED:::: only got #{n} interactions"
+        failedMsg("only got #{n} interactions")
         return false
     end
 
     # should be 2x in the stream
     n = 0
-    puts "TESTING::: ... stream"
+    testingMsg("... stream")
     m.stream { n += 1 }
     if n != nTimes*2
-        puts "FAILED:::: only got #{n} stream items"
+        failedMsg("only got #{n} stream items")
         return false
     end
         

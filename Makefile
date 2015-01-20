@@ -3,3 +3,8 @@ gem: numerous.rb gem/numerousapp.gemspec
 	mkdir gem/lib
 	cp numerous.rb gem/lib/numerousapp.rb
 	(cd gem ; gem build numerousapp.gemspec)
+
+
+test:
+	RUBYLIB=. ./test.rb 
+
