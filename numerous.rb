@@ -103,6 +103,9 @@ class NumerousClientInternals
     #
     def initialize(apiKey, server:'api.numerousapp.com')
 
+        if not apiKey
+            apiKey = Numerous.numerousKey()
+        end
 
         @serverName = server
         @auth = { user: apiKey, password: "" }
@@ -136,7 +139,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20141224.1'
+    VersionString = '20150117.1x'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -584,6 +587,145 @@ class Numerous  < NumerousClientInternals
         return NumerousMetric.new(id, self)
     end
 
+
+    #
+    # Version of metric() that accepts a name (label)
+    # instead of an ID, and can even process it as a regexp.
+    #
+    # @param [String] labelspec The name (label) or regexp
+    # @param [String] matchType 'FIRST' or 'BEST' or 'ONE' or 'STRING' (not regexp)
+    # @param [Numerous] nr 
+    #    The {Numerous} object that will be used to access this metric.
+    def metricByLabel(labelspec, matchType:'FIRST')
+        def raiseConflict(s1,s2)
+            raise NumerousMetricConflictError.new("Multiple matches", 409, [s1, s2])
+        end
+
+        bestMatch = [ nil, 0 ]
+
+        if not matchType
+            matchType = 'FIRST'
+        end
+        if not ['FIRST', 'BEST', 'ONE', 'STRING'].include?(matchType)
+            raise ArgumentError
+        end
+
+        self.metrics do |m|
+            if matchType == 'STRING'        # exact full match required
+                if m['label'] == labelspec
+                    if bestMatch[0]
+                        raiseConflict(bestMatch[0]['label'], m['label'])
+                    end
+                    bestMatch = [ m, 1 ]   # the length is irrelevant with STRING
+                end
+            else
+                mm = labelspec.match(m['label'])
+                if mm
+                    if matchType == 'FIRST'
+                        return self.metric(m['id'])
+                    elsif (matchType == 'ONE') and (bestMatch[1] > 0)
+                        raiseConflict(bestMatch[0]['label'], m['label'])
+                    end
+                    if mm[0].length > bestMatch[1]
+                        bestMatch = [ m, mm[0].length ]
+                    end
+                end
+            end
+        end
+        rv = nil
+        if bestMatch[0]
+            rv = self.metric(bestMatch[0]['id'])
+        end
+    end
+
+
+    #
+    # I found this a good way to handle supplying the API key so it's here
+    # as a class method you may find useful. What this function does is
+    # return you an API Key from a supplied string or "readable" object:
+    #
+    #          a "naked" API key (in which case this function is a no-op)
+    #          @-        :: meaning "get it from stdin"
+    #          @blah     :: meaning "get it from the file "blah"
+    #          /blah     :: get it from file /blah
+    #          .blah     :: get it from file .blah (could be ../ etc)
+    #        /readable/  :: if it has a .read method, get it that way
+    #          None      :: get it from environment variable NUMEROUSAPIKEY
+    #
+    # Where the "it" that is being gotten from any of those sources can be:
+    #    a "naked" API key
+    #    a JSON object, from which the credsAPIKey will be used to get the key
+    #
+    # Arguably this doesn't belong here, but it's helpful. Purists are free to
+    # ignore it or delete from their own tree :)
+    #
+
+    def self.numerousKey(s:nil, credsAPIKey:'NumerousAPIKey')
+
+    	if not s
+    	    # try to get from environment
+    	    s = ENV['NUMEROUSAPIKEY']
+    	    if not s
+    	        return nil
+            end
+        end
+
+    	closeThis = nil
+
+    	if s == "@-"             # creds coming from stdin
+    	    s = STDIN
+
+    	# see if they are in a file
+    	else
+    	    begin
+    	        if s.length() > 0         # is it a string or a file object?
+    	            # it's stringy - if it looks like a file open it or fail
+    	            begin
+    	        	if s.length() > 1 and s[0] == '@'
+    	        	    s = open(s[1..-1])
+    	        	    closeThis = s
+    	        	elsif s[0] == '/' or s[0] == '.'
+    	        	    s = open(s)
+    	        	    closeThis = s
+                        end
+    	            rescue
+    	        	return nil
+                    end
+                end
+    	    rescue NoMethodError     # it wasn't stringy, presumably it's a "readable"
+    	    end
+        end
+
+    	# well, see if whatever it is, is readable, and go with that if it is
+    	begin
+    	    v = s.read()
+    	    if closeThis
+    	        closeThis.close()
+            end
+    	    s = v
+    	rescue NoMethodError
+    	end
+
+    	# at this point s is either a JSON or a naked cred (or bogus)
+    	begin
+    	    j = JSON.parse(s)
+    	rescue TypeError, JSON::ParserError
+    	    j = {}
+        end
+
+
+    	#
+    	# This is kind of a hack and might hide some errors on your part
+    	#
+    	if not j.include? credsAPIKey  # this is how the naked case happens
+    	    # replace() bcs there might be a trailing newline on naked creds
+    	    # (usually happens with a file or stdin)
+    	    j[credsAPIKey] = s.sub("\n",'')
+        end 
+
+    	return j[credsAPIKey]
+    end
+
 end
 
 #
@@ -623,11 +765,47 @@ class NumerousMetric < NumerousClientInternals
     # @param [String] id The metric ID string.
     # @param [Numerous] nr 
     #    The {Numerous} object that will be used to access this metric.
+    #
+    # "id" should normally be the naked metric id (as a string).
+    #
+    # It can also be a nmrs: URL, e.g.:
+    #     nmrs://metric/2733614827342384
+    #
+    # Or a 'self' link from the API:
+    #     https://api.numerousapp.com/metrics/2733614827342384
+    #
+    # in either case we get the ID in the obvious syntactic way.
+    #
+    # It can also be a metric's web link, e.g.:
+    #     http://n.numerousapp.com/m/1x8ba7fjg72d
+    #
+    # in which case we "just know" that the tail is a base36
+    # encoding of the ID.
+    #
+    # The decoding logic here makes the specific assumption that
+    # the presence of a '/' indicates a non-naked metric ID. This
+    # seems a reasonable assumption given that IDs have to go into URLs
+    #
+
     def initialize(id, nr)
+        begin
+            if id.include? '/'
+                fields = id.split('/')
+                if fields[-2] == "m"
+                    id = fields[-1].to_i(36)
+                else
+                    id = fields[-1]
+                end
+            end
+        rescue NoMethodError
+            id = id.to_s
+        end
+
         @id = id
         @nr = nr
     end
     attr_reader :id
+
 
     #
     # Obtain the {Numerous} server object associated with a metric.
@@ -1116,6 +1294,4 @@ class NumerousMetric < NumerousClientInternals
     end
 
 end
-
-
 
