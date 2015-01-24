@@ -116,6 +116,7 @@ class NumerousClientInternals
         @agentString = "NW-Ruby-NumerousClass/" + VersionString +
                        " (Ruby #{RUBY_VERSION}) NumerousAPI/v2"
 
+        @filterDuplicates = true     # see discussion elsewhere
         @debugLevel = 0
     end
     attr_accessor :agentString
@@ -137,9 +138,17 @@ class NumerousClientInternals
         return prev
     end
 
+    # XXX This is primarily for testing; control filtering of bogus duplicates
+    #     If you are calling this you are probably doing something wrong.
+    def setBogusDupFilter(f)
+        prev = @filterDuplicates
+        @filterDuplicates = f
+        return prev
+    end
+
     protected
 
-    VersionString = '20150119.1'
+    VersionString = '20150123.1x'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -356,6 +365,13 @@ class NumerousClientInternals
         list = []
         nextURL = api[:basePath]
 
+        # see discussion about duplicate filtering below
+        if @filterDuplicates and api[:dupFilter]
+            filterInfo = { prev: {}, current: {} }
+        else
+            filterInfo = nil
+        end
+
         while nextURL
             # get a chunk from the server
 
@@ -364,13 +380,46 @@ class NumerousClientInternals
             #     (e.g., if a metric got deleted while you were iterating)
             #     But here we're just letting the whatever-exceptions filter up
             v = simpleAPI(api, url:nextURL)
-
+            if filterInfo
+                filterInfo[:prev] = filterInfo[:current]
+                filterInfo[:current] = {}
+            end
+            
             list = v[api[:list]]
             nextURL = v[api[:next]]
 
             # hand them out
             if list             # can be nil for a variety of reasons
-                list.each { |i| block.call i }
+                list.each do |i| 
+
+                    # A note about duplicate filtering
+                    #
+		    # There is a bug in the NumerousApp server which can
+		    # cause collections to show duplicates of certain events
+		    # (or interactions/stream items). Explaining the bug in great
+		    # detail is beyond the scope here; suffice to say it only
+		    # happens for events that were recorded nearly-simultaneously
+		    # and happen to be getting reported right at a chunking boundary.
+                    #
+                    # So we are filtering them out here. For a more involved
+                    # discussion of this, see the python implementation. This
+                    # filtering "works" because it knows pragmatically how/where
+                    # the bug can show up
+                    #
+                    # Turning off duplicate filtering is really meant only for testing.
+                    #
+                    # Not all API's require dupfiltering, hence the APIInfo test
+                    #
+                    if (not filterInfo)    # the easy case, not filtering
+                        block.call i
+                    else
+                        thisId = i[api[:dupFilter]]
+                        if not filterInfo[:prev].include? thisId
+                            filterInfo[:current][thisId] = 1
+                            block.call i
+                        end
+                    end
+                end
             end
         end
         return nil     # the subclasses return (should return) their own self
@@ -830,7 +879,8 @@ class NumerousMetric < NumerousClientInternals
         path: '/v1/metrics/%{metricId}/events',
         GET: {
             next: 'nextURL',
-            list: 'events'
+            list: 'events',
+            dupFilter: 'id'
         },
         POST: {
             successCodes: [ 201 ]
@@ -850,7 +900,8 @@ class NumerousMetric < NumerousClientInternals
         path: '/v2/metrics/%{metricId}/stream',
         GET: {
             next: 'next',
-            list: 'items'
+            list: 'items',
+            dupFilter: 'id'
         }
       },
 
@@ -859,7 +910,8 @@ class NumerousMetric < NumerousClientInternals
         path: '/v2/metrics/%{metricId}/interactions',
         GET: {
             next: 'nextURL',
-            list: 'interactions'
+            list: 'interactions',
+            dupFilter: 'id'
         },
         POST: {
             successCodes: [ 201 ]
