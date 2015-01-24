@@ -239,6 +239,16 @@ class NumerousClientInternals
     end
     private :makeboundary
 
+    # helper function to extract header field integer or return -1
+    def getElseM1(d, k)
+        if d.key? k
+            return d[k].to_i
+        else
+            return -1
+        end
+    end
+    private :getElseM1
+
 
     # ALL api exchanges with the Numerous server go through here except
     # for getRedirect() which is a special case (hack) for photo URLs 
@@ -334,8 +344,9 @@ class NumerousClientInternals
             end
 
             # invoke the rate-limiting policy
-            rateRemain = resp['x-rate-limit-remaining'].to_i
-            rateReset = resp['x-rate-limit-reset'].to_i
+
+            rateRemain = getElseM1(resp, 'x-rate-limit-remaining')
+            rateReset = getElseM1(resp, 'x-rate-limit-reset')
             @statistics[:rateRemaining] = rateRemain
             @statistics[:rateReset] = rateReset
 
@@ -548,6 +559,7 @@ class NumerousClientInternals
         rateleft = tparams[:rateRemaining]
         attempt = tparams[:attempt]    # note: is zero on very first try
         stats = tparams[:statistics]
+        stats[:throttleDefaultCalls] += 1
 
         if attempt > 0
             stats[:throttleMultipleAttempts] += 1
@@ -832,6 +844,13 @@ class Numerous  < NumerousClientInternals
             raise ArgumentError
         end
 
+        # if you specified STRING and sent a regexp... or vice versa
+        if matchType == 'STRING' and labelspec.instance_of?(Regexp)
+            labelspec = labelspec.source
+        elsif matchType != 'STRING' and not labelspec.instance_of?(Regexp)
+            labelspec = /#{labelspec}/
+        end
+
         self.metrics do |m|
             if matchType == 'STRING'        # exact full match required
                 if m['label'] == labelspec
@@ -1027,15 +1046,8 @@ class NumerousMetric < NumerousClientInternals
         @nr = nr
     end
     attr_reader :id
+    attr_reader :nr
 
-
-    #
-    # Obtain the {Numerous} server object associated with a metric.
-    # @return [Numerous]
-    #
-    def getServer()
-        return @nr
-    end
 
     APIInfo = {                             
       # read/update/delete a metric

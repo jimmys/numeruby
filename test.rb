@@ -59,9 +59,13 @@ def numTests(nr, opts)
         nr.debug(1)
     end
 
-    if not nr.ping
-        failedMsg("Ping failed")
-        exit(1)
+    begin
+        testingMsg("nr.ping()")
+        nr.ping()
+    rescue NumerousAuthError
+        failedMsg("NumerousAuthError exception.")
+        infoMsg("Check setting of NUMEROUSAPIKEY environment or -c CREDSPEC")
+        return false
     end
 
     mVal = 999
@@ -563,4 +567,5 @@ rescue NoMethodError
 end
 
 $deleteTheseMetrics.each { |m| m.crushKillDestroy }
+infoMsg("statistics: #{nr.statistics}")
 exit(exitStatus)

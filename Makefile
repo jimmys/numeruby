@@ -4,7 +4,8 @@ rubygem: numerous.rb gem/numerousapp.gemspec
 	cp numerous.rb gem/lib/numerousapp.rb
 	(cd gem ; gem build numerousapp.gemspec)
 
-
-test:
+test: numerousapp.rb
 	RUBYLIB=. ./test.rb 
 
+numerousapp.rb:
+	ln -s numerous.rb numerousapp.rb
