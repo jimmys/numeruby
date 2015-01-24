@@ -117,10 +117,13 @@ class NumerousClientInternals
                        " (Ruby #{RUBY_VERSION}) NumerousAPI/v2"
 
         @filterDuplicates = true     # see discussion elsewhere
+        @statistics = Hash.new { |h, k| h[k] = 0 }
         @debugLevel = 0
+
     end
     attr_accessor :agentString
     attr_reader :serverName, :debugLevel
+    attr_reader :statistics
 
     # Set the debug level
     #
@@ -240,6 +243,8 @@ class NumerousClientInternals
     #
     def simpleAPI(api, jdict:nil, multipart:nil, url:nil)
 
+        @statistics[:simpleAPI] += 1
+
         # take the base url if you didn't give us an override
         url ||= api[:basePath]
 
@@ -291,8 +296,9 @@ class NumerousClientInternals
             end
         end
 
+        @statistics[:serverRequests] += 1
         resp = @http.request(rq)
-       
+
         if @debugLevel > 0
             puts "Response headers:\n"
             resp.each do | k, v |
@@ -364,6 +370,7 @@ class NumerousClientInternals
         api = makeAPIcontext(info, :GET, subs)
         list = []
         nextURL = api[:basePath]
+        firstTime = true
 
         # see discussion about duplicate filtering below
         if @filterDuplicates and api[:dupFilter]
@@ -380,6 +387,16 @@ class NumerousClientInternals
             #     (e.g., if a metric got deleted while you were iterating)
             #     But here we're just letting the whatever-exceptions filter up
             v = simpleAPI(api, url:nextURL)
+
+            # statistics, helpful for testing/debugging. Algorithmically
+            # we don't really care about first time or not, just for the stats
+            if firstTime
+                @statistics[:firstChunks] += 1
+                firstTime = false
+            else
+                @statistics[:additionalChunks] += 1
+            end
+
             if filterInfo
                 filterInfo[:prev] = filterInfo[:current]
                 filterInfo[:current] = {}
@@ -414,7 +431,9 @@ class NumerousClientInternals
                         block.call i
                     else
                         thisId = i[api[:dupFilter]]
-                        if not filterInfo[:prev].include? thisId
+                        if filterInfo[:prev].include? thisId
+                            @statistics[:duplicatesFiltered] += 1
+                        else
                             filterInfo[:current][thisId] = 1
                             block.call i
                         end
