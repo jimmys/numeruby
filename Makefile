@@ -1,4 +1,4 @@
-gem: numerous.rb gem/numerousapp.gemspec
+rubygem: numerous.rb gem/numerousapp.gemspec
 	rm -rf gem/lib
 	mkdir gem/lib
 	cp numerous.rb gem/lib/numerousapp.rb
