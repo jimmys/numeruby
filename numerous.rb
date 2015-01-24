@@ -88,9 +88,13 @@ end
 #
 class NumerousClientInternals
 
+
+
     #
     # @param apiKey [String] API authentication key
     # @param server [String] Optional (keyword arg). Server name.
+    # @param throttle [Proc] Optional throttle policy
+    # @param throttleData [Any] Optional data for throttle
     #
     # @!attribute agentString 
     #    @return [String] User agent string sent to the server.
@@ -101,7 +105,8 @@ class NumerousClientInternals
     # @!attribute [r] debugLevel
     #    @return [Fixnum] Current debugging level; use debug() method to change.
     #
-    def initialize(apiKey, server:'api.numerousapp.com')
+    def initialize(apiKey, server:'api.numerousapp.com',
+                           throttle:nil, throttleData:nil)
 
         if not apiKey
             apiKey = Numerous.numerousKey()
@@ -117,7 +122,25 @@ class NumerousClientInternals
                        " (Ruby #{RUBY_VERSION}) NumerousAPI/v2"
 
         @filterDuplicates = true     # see discussion elsewhere
-        @statistics = Hash.new { |h, k| h[k] = 0 }
+
+        # throttling.
+        # The arbitraryMaximum is just that: under no circumstances will we retry
+        # any particular request more than that. Tough noogies.
+        #
+        # the throttlePolicy "tuple" is:
+        #     [ 0 ] - Proc
+        #     [ 1 ] - specific data for Proc
+        #     [ 2 ] - "up" tuple for chained policy
+        #
+        # and the default policy uses the "data" (40) as the voluntary backoff point
+        #
+        @arbitraryMaximumTries = 10
+        @throttlePolicy = [ThrottleDefault, 40, nil]
+        if throttle
+            @throttlePolicy = [throttle, throttleData, @throttlePolicy]
+        end
+
+        @statistics = Hash.new { |h, k| h[k] = 0 }  # just useful debug/testing info
         @debugLevel = 0
 
     end
@@ -296,15 +319,40 @@ class NumerousClientInternals
             end
         end
 
-        @statistics[:serverRequests] += 1
-        resp = @http.request(rq)
+        resp = nil   # ick, is there a better way to get this out of the block?
+        @arbitraryMaximumTries.times do |attempt|
 
-        if @debugLevel > 0
-            puts "Response headers:\n"
-            resp.each do | k, v |
-                puts "k: " + k + " :: " + v + "\n"
+            @statistics[:serverRequests] += 1
+            resp = @http.request(rq)
+
+            if @debugLevel > 0
+                puts "Response headers:\n"
+                resp.each do | k, v |
+                    puts "k: " + k + " :: " + v + "\n"
+                end
+                puts "Code: " + resp.code + "/" + resp.code.class.to_s + "/\n"
             end
-            puts "Code: " + resp.code + "/" + resp.code.class.to_s + "/\n"
+
+            # invoke the rate-limiting policy
+            rateRemain = resp['x-rate-limit-remaining'].to_i
+            rateReset = resp['x-rate-limit-reset'].to_i
+            @statistics[:rateRemaining] = rateRemain
+            @statistics[:rateReset] = rateReset
+
+            tp = { :debug=> @debug,
+                   :attempt=> attempt,
+                   :rateRemaining=> rateRemain,
+                   :rateReset=> rateReset,
+                   :resultCode=> resp.code.to_i,
+                   :resp=> resp,
+                   :statistics=> @statistics,
+                   :request=> { :httpMethod => api[:httpMethod], :url => path } }
+
+            td = @throttlePolicy[1]
+            up = @throttlePolicy[2]
+            if not @throttlePolicy[0].call(self, tp, td, up)
+                break
+            end
         end
 
         goodCodes = api[:successCodes] || [200]
@@ -443,6 +491,112 @@ class NumerousClientInternals
         end
         return nil     # the subclasses return (should return) their own self
     end
+
+    #
+    # The default throttle policy.
+    # Invoked after the response has been received and we are supposed to
+    # return true to force a retry or false to accept this response as-is.
+    #
+    # The policy this implements:
+    #    if the server failed with too busy, do backoff based on attempt number
+    #
+    #    if we are "getting close" to our limit, arbitrarily delay ourselves
+    #
+    #    if we truly got spanked with "Too Many Requests"
+    #    then delay the amount of time the server told us to delay.
+    #
+    # The arguments supplied to us are:
+    #     nr is the Numerous (handled explicitly so you can write external funcs too)
+    #     tparams is a Hash containing:
+    #         :attempt         : the attempt number. Zero on the very first try
+    #         :rateRemaining   : X-Rate-Limit-Remaining reported by the server
+    #         :rateReset       : time (in seconds) until fresh rate granted
+    #         :resultCode      : HTTP code from the server (e.g., 409, 200, etc)
+    #         :resp            : the full-on response object if you must have it
+    #         :request         : information about the original request
+    #         :statistics      : place to record stats (purely informational stats)
+    #         :debug           : current debug level
+    #
+    #     td is the data you supplied as "throttleData" to the Numerous() constructor
+    #     up is a tuple useful for calling the original system throttle policy:
+    #          up[0] is the function pointer
+    #          up[1] is the td for *that* function
+    #          up[2] is the "up" for calling *that* function
+    #       ... so after you do your own thing if you then want to defer to the
+    #           built-in throttle policy you can
+    #                     return send(up[0], nr, tparams, up[1], up[2])
+    #
+    # It's really (really really) important to understand the return value and
+    # the fact that we are invoked AFTER each request:
+    #    false : simply means "don't do more retries". It does not imply anything
+    #            about the success or failure of the request; it simply means that
+    #            this most recent request (response) is the one to "take" as
+    #            the final answer
+    #
+    #    true  : means that the response is, indeed, to be interpreted as some
+    #            sort of rate-limit failure and should be discarded. The original
+    #            request will be sent again. Obviously it's a very bad idea to
+    #            return true in cases where the server might have done some
+    #            anything non-idempotent. We assume that a 429 ("Too Many") or
+    #            a 500 ("Too Busy") response from the server means the server didn't
+    #            actually do anything (so a retry, timed appropriately, is ok)
+    #
+    # All of this seems overly general for what basically amounts to "sleep sometimes"
+    #
+
+    ThrottleDefault = Proc.new do |nr, tparams, td, up|
+        rateleft = tparams[:rateRemaining]
+        attempt = tparams[:attempt]    # note: is zero on very first try
+        stats = tparams[:statistics]
+
+        if attempt > 0
+            stats[:throttleMultipleAttempts] += 1
+        end
+
+        backarray = [ 2, 5, 15, 30, 60 ]
+        if attempt < backarray.length
+            backoff = backarray[attempt]
+        else
+            stats[:throttleMaxed] += 1
+            next false               # too many tries
+        end
+
+        # if the server actually has failed with too busy, sleep and try again
+        if tparams[:resultCode] == 500
+            stats[:throttle500] += 1
+            sleep(backoff)
+            next true
+        end
+
+        # if we weren't told to back off, no need to retry
+        if tparams[:resultCode] != 429
+            # but if we are closing in on the limit then slow ourselves down
+            # note that some errors don't communicate rateleft so we have to
+            # check for that as well (will be -1 here if wasn't sent to us)
+            #
+            # at constructor time our "throttle data" (td) was set up as the
+            # voluntary arbitrary limit
+            if rateleft >= 0 and rateleft < td
+                stats[:throttleVoluntaryBackoff] += 1
+                # arbitrary .. 1 second if more than half left, 3 seconds if less
+                if (rateleft*2) > td
+                    sleep(1)
+                else
+                    sleep(3)
+                end
+            end
+            next false               # no retry
+        end
+
+        # decide how long to delay ... we just wait for as long as the
+        # server told us to (plus "backoff" seconds slop to really be sure we
+        # aren't back too soon)
+        stats[:throttle429] += 1
+        sleep(tparams[:rateReset] + backoff)
+        next true
+    end
+    private_constant :ThrottleDefault
+
 end
 
 #
