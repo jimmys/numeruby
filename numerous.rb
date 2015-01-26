@@ -174,7 +174,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150123-1.0.0'
+    VersionString = '20150125-1.0.1'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -530,12 +530,12 @@ class NumerousClientInternals
     #
     #     td is the data you supplied as "throttleData" to the Numerous() constructor
     #     up is a tuple useful for calling the original system throttle policy:
-    #          up[0] is the function pointer
+    #          up[0] is the Proc
     #          up[1] is the td for *that* function
     #          up[2] is the "up" for calling *that* function
     #       ... so after you do your own thing if you then want to defer to the
     #           built-in throttle policy you can
-    #                     return send(up[0], nr, tparams, up[1], up[2])
+    #                     up[0].call(nr, tparams, up[1], up[2])
     #
     # It's really (really really) important to understand the return value and
     # the fact that we are invoked AFTER each request:
