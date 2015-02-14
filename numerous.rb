@@ -135,7 +135,12 @@ class NumerousClientInternals
         # and the default policy uses the "data" (40) as the voluntary backoff point
         #
         @arbitraryMaximumTries = 10
-        @throttlePolicy = [ThrottleDefault, 40, nil]
+        voluntary = { voluntary: 40}
+        # you can keep the dflt throttle but just alter the voluntary param, this way:
+        if throttleData and not throttle
+            voluntary = throttleData
+        end
+        @throttlePolicy = [ThrottleDefault, voluntary, nil]
         if throttle
             @throttlePolicy = [throttle, throttleData, @throttlePolicy]
         end
@@ -147,6 +152,12 @@ class NumerousClientInternals
     attr_accessor :agentString
     attr_reader :serverName, :debugLevel
     attr_reader :statistics
+
+    def to_s()
+        oid = (2 * self.object_id).to_s(16)
+        return "<Numerous {#{@serverName}} @ 0x#{oid}>"
+    end
+
 
     # Set the debug level
     #
@@ -174,7 +185,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150125-1.0.1'
+    VersionString = '20150214-1.0.1xx'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -586,12 +597,12 @@ class NumerousClientInternals
             # note that some errors don't communicate rateleft so we have to
             # check for that as well (will be -1 here if wasn't sent to us)
             #
-            # at constructor time our "throttle data" (td) was set up as the
+            # at constructor time our "throttle data" (td) was set up with the
             # voluntary arbitrary limit
-            if rateleft >= 0 and rateleft < td
+            if rateleft >= 0 and rateleft < td[:voluntary]
                 stats[:throttleVoluntaryBackoff] += 1
                 # arbitrary .. 1 second if more than half left, 3 seconds if less
-                if (rateleft*2) > td
+                if (rateleft*2) > td[:voluntary]
                     sleep(1)
                 else
                     sleep(3)
@@ -827,7 +838,7 @@ class Numerous  < NumerousClientInternals
     # instead of an ID, and can even process it as a regexp.
     #
     # @param [String] labelspec The name (label) or regexp
-    # @param [String] matchType 'FIRST' or 'BEST' or 'ONE' or 'STRING' (not regexp)
+    # @param [String] matchType 'FIRST','BEST','ONE','STRING' or 'ID'
     # @param [Numerous] nr 
     #    The {Numerous} object that will be used to access this metric.
     def metricByLabel(labelspec, matchType:'FIRST')
@@ -840,8 +851,20 @@ class Numerous  < NumerousClientInternals
         if not matchType
             matchType = 'FIRST'
         end
-        if not ['FIRST', 'BEST', 'ONE', 'STRING'].include?(matchType)
+        if not ['FIRST', 'BEST', 'ONE', 'STRING', 'ID'].include?(matchType)
             raise ArgumentError
+        end
+
+        # Having 'ID' as an option simplifies some automated use cases
+        # (e.g., test vectors) because you can just pair ids and matchTypes
+        # and simply always call ByLabel even for native (nonlabel) IDs
+        # We add the semantics that the result is validated as an actual ID
+        if matchType == 'ID'
+            rv = metric(labelspec)
+            if not rv.validate()
+                rv = nil
+            end
+            return rv
         end
 
         # if you specified STRING and sent a regexp... or vice versa
@@ -1027,23 +1050,48 @@ class NumerousMetric < NumerousClientInternals
     # the presence of a '/' indicates a non-naked metric ID. This
     # seems a reasonable assumption given that IDs have to go into URLs
     #
+    # "id" can be a hash representing a metric or a subscription.
+    # We will take (in order) key 'metricId' or key 'id' as the id.
+    # This is convenient when using the metrics() or subscriptions() iterators.
+    #
+    # "id" can be an integer representing a metric ID. Not recommended
+    # though it's handy sometimes in cut/paste interactive testing/use.
+    #
 
     def initialize(id, nr)
+        actualId = nil
         begin
-            if id.include? '/'
-                fields = id.split('/')
-                if fields[-2] == "m"
-                    id = fields[-1].to_i(36)
-                else
-                    id = fields[-1]
-                end
+            fields = id.split('/')
+            if fields.length() == 1
+                actualId = fields[0]
+            elsif fields[-2] == "m"
+                actualId = fields[-1].to_i(36)
+            else
+                actualId = fields[-1]
             end
         rescue NoMethodError
-            id = id.to_s
         end
 
-        @id = id
-        @nr = nr
+        if not actualId
+            # it's not a string, see if it's a hash
+             actualId = id['metricId'] || id['id']
+        end
+
+        if not actualId
+            # well, see if it looks like an int
+            i = id.to_i     # allow this to raise exception if id bogus type here
+            if i == id
+                actualId = i.to_s
+            end
+        end
+
+        if not actualId
+            raise ArgumentError("invalid id")
+        else
+            @id = actualId.to_s    # defensive in case bad fmt in hash
+            @nr = nr
+            @cachedHash = nil
+        end
     end
     attr_reader :id
     attr_reader :nr
@@ -1151,6 +1199,56 @@ class NumerousMetric < NumerousClientInternals
     end
     private :getAPI
 
+    def ensureCache()
+        if not @cachedHash
+            ignored = read()    # just reading brings cache into being
+        end
+    end
+
+    # access cached copy of metric via [ ]
+    def [](idx)
+        ensureCache()
+        return @cachedHash[idx]
+    end
+
+    # enumerator metric.each { |k, v| ... }
+    def each()
+        ensureCache()
+        @cachedHash.each { |k, v| yield(k, v) }
+    end
+
+    # produce the keys of a metric as an array
+    def keys()
+        ensureCache()
+        return @cachedHash.keys
+    end
+        
+    # string representation of a metric
+    def to_s()
+       # there's nothing important/magic about the object id displayed; however
+       # to make it match the native to_s we (believe it or not) need to multiply
+       # the object_id return value by 2. This is obviously implementation specific
+       # (and makes no difference to anyone; but this way it "looks right" to humans)
+       objid = (2*self.object_id).to_s(16)   # XXX wow lol
+       rslt = "<NumerousMetric @ 0x#{objid}: "
+       begin
+           ensureCache()
+           lbl = self['label']
+           val = self['value']
+           rslt += "'#{self['label']}' [#@id] = #{val}>"
+       rescue NumerousError => x
+           puts(x.code)
+           if x.code == 400
+               rslt += "**INVALID-ID** '#@id'>"
+           elsif x.code == 404
+               rslt += "**ID NOT FOUND** '#@id'>"
+           else
+               rslt += "**SERVER-ERROR** '#{x.message}'>"
+           end
+       end
+       return rslt
+    end
+
     #
     # Read the current value of a metric
     # @param [Boolean] dictionary
@@ -1162,6 +1260,7 @@ class NumerousMetric < NumerousClientInternals
     def read(dictionary: false)
         api = getAPI(:metric, :GET)
         v = @nr.simpleAPI(api)
+        @cachedHash = v.clone
         return (if dictionary then v else v['value'] end)
     end
 
@@ -1309,7 +1408,7 @@ class NumerousMetric < NumerousClientInternals
         end
 
         dict.each { |k, v| params[k] = v }
-
+        @cachedHash = nil     # bcs the subscriptions count changes
         api = getAPI(:subscription, :PUT, { userId: userId })
         return @nr.simpleAPI(api, jdict:params)
     end
@@ -1345,6 +1444,7 @@ class NumerousMetric < NumerousClientInternals
             j['action'] = 'ADD'
         end
 
+        @cachedHash = nil  # will need to refresh cache on next access
         api = getAPI(:events, :POST)
         begin
             v = @nr.simpleAPI(api, jdict:j)
@@ -1381,7 +1481,8 @@ class NumerousMetric < NumerousClientInternals
         dict.each { |k, v| newParams[k] = v }
 
         api = getAPI(:metric, :PUT)
-        return @nr.simpleAPI(api, jdict:newParams)
+        @cachedHash = @nr.simpleAPI(api, jdict:newParams)
+        return @cachedHash.clone
     end
 
     # common code for writing interactions
@@ -1439,7 +1540,8 @@ class NumerousMetric < NumerousClientInternals
     def photo(imageDataOrReadable, mimeType:'image/jpeg')
         api = getAPI(:photo, :POST)
         mpart = { :f => imageDataOrReadable, :mimeType => mimeType }
-        return @nr.simpleAPI(api, multipart: mpart)
+        @cachedHash = @nr.simpleAPI(api, multipart: mpart)
+        return @cachedHash.clone()
     end
 
     # Delete the metric's photo
@@ -1447,6 +1549,7 @@ class NumerousMetric < NumerousClientInternals
     #   but the error code will be 200/OK.
     # @return [nil]
     def photoDelete
+        @cachedHash = nil   # I suppose we could have just deleted the photoURL
         api = getAPI(:photo, :DELETE)
         v = @nr.simpleAPI(api)
         return nil
@@ -1525,6 +1628,7 @@ class NumerousMetric < NumerousClientInternals
     #
     # @return [nil]
     def crushKillDestroy
+        @cachedHash = nil
         api = getAPI(:metric, :DELETE)
         v = @nr.simpleAPI(api)
         return nil

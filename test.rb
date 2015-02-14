@@ -143,6 +143,7 @@ def numTests(nr, opts)
         return false
     end
 
+
     testingMsg("writing a comment")
 
     cmt = "This be a righteously commentatious comment"
@@ -208,6 +209,25 @@ def numTests(nr, opts)
             return false
         end
     end
+
+    testingMsg("Testing the [ ] operator")
+    v = m.read
+    if m['value'] != v
+        failedMsg("Did not get same result from m['value'], got #{m['value']}")
+        return false
+    end
+
+    # see if writing updates the cache correctly
+    testingMsg("Testing the [ ] cache consistency")
+    m.write v+1
+    if m['value'] != v + 1
+        failedMsg("Did not get updated result from m['value'], got #{m['value']}")
+        return false
+    end
+
+
+
+
     # test add
     testingMsg("ADD 1")
     m.write(17)
