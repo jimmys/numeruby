@@ -51,6 +51,8 @@ end
 # Typically the PID is used but can be any integer that 
 # (ideally) isn't always the same
 def numTests(nr, opts)
+    testLabelPrefix = "TESTXXX-"
+
     testingMsg("Version under test: #{nr.agentString}")
 
     testVary = opts[:vary]
@@ -58,6 +60,9 @@ def numTests(nr, opts)
     if opts[:debug]
         nr.debug(1)
     end
+
+    # set it up to keep the last time server-response times (just for infotainment)
+    nr.statistics[:serverResponseTimes] = [0]*10
 
     begin
         testingMsg("nr.ping()")
@@ -72,7 +77,7 @@ def numTests(nr, opts)
     mAttrs = {'private' => true, 'value' => mVal}
     testingMsg("nr.createMetric(#{mAttrs})")
 
-    mName = "TESTXXX-NumerousAPI#{testVary}"
+    mName = "#{testLabelPrefix}NumerousAPI#{testVary}"
     resultsMsg(mName)
     m = nr.createMetric(mName, attrs:mAttrs)
     $deleteTheseMetrics.push m
@@ -104,7 +109,7 @@ def numTests(nr, opts)
 
     # semi-random order on purpose
     for i in [3, 1, 4, 5, 2]
-        mOneStr =  "TESTXXX#{middlePart}-"+xxx[i-1]
+        mOneStr =  "#{testLabelPrefix}#{middlePart}-"+xxx[i-1]
         $deleteTheseMetrics.push nr.createMetric(mOneStr)
     end
 
@@ -128,6 +133,21 @@ def numTests(nr, opts)
     rx = endKey + "\\d+$"
     mx = nr.metricByLabel(/#{rx}/,matchType:'BEST')
     resultsMsg("got BEST: #{mx.label}")
+
+    testingMsg("Looking up ByLabel ID")
+
+    # find any of the test metrics we've already made, doesn't really matter which
+    # (implicitly also a regexp test)
+    mx = nr.metricByLabel(/#{testLabelPrefix}.*#{testVary}/)
+
+    # ok now see if we can find that one using the 'ID' feature of ByLabel
+    mx2 = nr.metricByLabel(mx.id.to_s, matchType:'ID')
+
+    # really the "or" part is redundant but it's just implicitly another test
+    if (mx.id != mx2.id) or (mx['value'] != mx2['value'])
+        failedMsg('Looking up by ByLabel/ID failed to get the correct metric')
+        return false
+    end
 
     # write a value see if it gets there
 
@@ -225,8 +245,17 @@ def numTests(nr, opts)
         return false
     end
 
-
-
+    # see if caching works, by purposefully creating cache inconsistency
+    testingMsg("More [ ] caching tests")
+    m2 = nr.metric(m.id)
+    v = m2['value']
+    v = m['value']
+    # both metrics should have caches now, so update m2 see if m stays stale
+    m2.write v+1
+    if m['value'] != v
+        failedMsg("Caching didn't work as expected")
+        return false
+    end
 
     # test add
     testingMsg("ADD 1")
@@ -248,6 +277,8 @@ def numTests(nr, opts)
         failedMsg("*** FAILED: #{m.read(dictionary:true)}")
         return false
     end
+
+    infoMsg("server response time data: #{nr.statistics[:serverResponseTimes]}")
 
     # test error 
     testingMsg("Setting an error")
@@ -415,7 +446,7 @@ def numTests(nr, opts)
     mAttrs = {'private' => true, 'kind' => 'timer'}
     testingMsg("nr.createMetric(#{mAttrs})")
 
-    mtmr = nr.createMetric("TESTXXX-TMR-NumerousAPI#{testVary}", attrs:mAttrs)
+    mtmr = nr.createMetric("#{testLabelPrefix}TMR-NmAPI#{testVary}", attrs:mAttrs)
     $deleteTheseMetrics.push mtmr
     resultsMsg("created #{mtmr}")
 
@@ -428,7 +459,7 @@ def numTests(nr, opts)
     mAttrs = {'private' => true}
     testingMsg("nr.createMetric(#{mAttrs})")
 
-    mvir = nr.createMetric("TESTXXX-V-NumerousAPI#{testVary}", attrs:mAttrs)
+    mvir = nr.createMetric("#{testLabelPrefix}V-NumerousAPI#{testVary}", attrs:mAttrs)
     $deleteTheseMetrics.push mvir
     resultsMsg("Created: #{mvir}")
 
@@ -542,7 +573,9 @@ def numTests(nr, opts)
         failedMsg("only got #{n} stream items")
         return false
     end
-        
+
+    infoMsg("server response time data: #{nr.statistics[:serverResponseTimes]}")
+
     return true
 
 end
