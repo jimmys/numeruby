@@ -9,10 +9,10 @@
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -26,7 +26,7 @@
 #   Numerous
 #     -- server-level operations: get user parameters,  create metric, etc
 #
-#   NumerousMetric 
+#   NumerousMetric
 #     -- individual metrics: read/write/like/comment, etc
 #
 #   NumerousClientInternals
@@ -72,23 +72,21 @@ end
 
 #
 # A NumerousMetricConflictError occurs when you write to a metric
-# and specified "only if changed" and your value 
+# and specified "only if changed" and your value
 # was (already) the current value
-# 
+#
 class NumerousMetricConflictError < NumerousError
 end
 
 #
-# == NumerousClientInternals 
+# == NumerousClientInternals
 #
 # Handles details of talking to the numerousapp.com server, including
 # the (basic) authentication, handling chunked APIs, json vs multipart APIs,
-# fixing up a few server response quirks, and so forth. It is not meant 
+# fixing up a few server response quirks, and so forth. It is not meant
 # for use outside of Numerous and NumerousMetric.
 #
 class NumerousClientInternals
-
-
 
     #
     # @param apiKey [String] API authentication key
@@ -96,7 +94,7 @@ class NumerousClientInternals
     # @param throttle [Proc] Optional throttle policy
     # @param throttleData [Any] Optional data for throttle
     #
-    # @!attribute agentString 
+    # @!attribute agentString
     #    @return [String] User agent string sent to the server.
     #
     # @!attribute [r] serverName
@@ -114,7 +112,7 @@ class NumerousClientInternals
 
         @serverName = server
         @auth = { user: apiKey, password: "" }
-        u = URI.parse("https://"+server) 
+        u = URI.parse("https://"+server)
         @http = Net::HTTP.new(server, u.port)
         @http.use_ssl = true    # always required by NumerousApp
 
@@ -158,10 +156,9 @@ class NumerousClientInternals
         return "<Numerous {#{@serverName}} @ 0x#{oid}>"
     end
 
-
     # Set the debug level
     #
-    # @param [Fixnum] lvl 
+    # @param [Fixnum] lvl
     #   The desired debugging level. Greater than zero turns on debugging.
     # @return [Fixnum] the previous debugging level.
     def debug(lvl=1)
@@ -262,7 +259,7 @@ class NumerousClientInternals
 
 
     # ALL api exchanges with the Numerous server go through here except
-    # for getRedirect() which is a special case (hack) for photo URLs 
+    # for getRedirect() which is a special case (hack) for photo URLs
     #
     # Any single request/response uses this; chunked APIs use
     # the iterator classes (which in turn come back and use this repeatedly)
@@ -281,7 +278,7 @@ class NumerousClientInternals
     # in a url and it will take precedence over the basePath if any is present
     #
     # You can pass in a dictionary jdict which will be json-ified
-    # and sent as Content-Type: application/json. Or you can pass in 
+    # and sent as Content-Type: application/json. Or you can pass in
     # a multipart dictionary ... this is used for posting photos
     # You should not specify both jdict and multipart
     #
@@ -300,7 +297,7 @@ class NumerousClientInternals
             # need to add logic. XXX TODO XXX
             path = URI.parse(url).request_uri
         end
-                
+
         rq = MethMap[api[:httpMethod]].new(path)
         rq.basic_auth(@auth[:user], @auth[:password])
         rq['user-agent'] = @agentString
@@ -388,7 +385,7 @@ class NumerousClientInternals
                 # On some requests that return "nothing" the server
                 # returns {} ... on others it literally returns nothing.
                 if (not resp.body) or resp.body.length == 0
-                    rj = {} 
+                    rj = {}
                 else
                     # this isn't supposed to happen... server bug?
                     raise e
@@ -471,13 +468,13 @@ class NumerousClientInternals
                 filterInfo[:prev] = filterInfo[:current]
                 filterInfo[:current] = {}
             end
-            
+
             list = v[api[:list]]
             nextURL = v[api[:next]]
 
             # hand them out
             if list             # can be nil for a variety of reasons
-                list.each do |i| 
+                list.each do |i|
 
                     # A note about duplicate filtering
                     #
@@ -642,18 +639,18 @@ end
 # Hash of <string-key, value> pairs and returned from the appropriate methods.
 #
 # For some operations the server returns only a success/failure code.
-# In those cases there is no useful return value from the method; the 
+# In those cases there is no useful return value from the method; the
 # method succeeds or else raises an exception (containing the failure code).
 #
 # For the collection operations the server returns a JSON array of dictionary
 # representations, possibly "chunked" into multiple request/response operations.
-# The enumerator methods (e.g., "metrics") implement lazy-fetch and hide 
+# The enumerator methods (e.g., "metrics") implement lazy-fetch and hide
 # the details of the chunking from you. They simply yield each individual
 # item (string-key Hash) to your block.
 #
 # === Exception handling
 #
-# Almost every API that interacts with the server will potentially 
+# Almost every API that interacts with the server will potentially
 # raise a {NumerousError} (or subclass thereof). This is not noted specifically
 # in the doc for each method unless it might be considered a "surprise"
 # (e.g., ping always returns true else raises an exception). Rescue as needed.
@@ -662,15 +659,15 @@ end
 class Numerous  < NumerousClientInternals
 
     # path info for the server-level APIs: create a metric, get user info, etc
-    APIInfo = {        
+    APIInfo = {
       # POST to this to create a metric
-      create: { 
+      create: {
           path: '/v1/metrics',
           POST: { successCodes: [ 201 ] }
       },
 
       # GET a users metric collection
-      metricsCollection: { 
+      metricsCollection: {
           path: '/v2/users/%{userId}/metrics',
           defaults: { userId: 'me' },
           GET: { next: 'nextURL', list: 'metrics' }
@@ -732,7 +729,7 @@ class Numerous  < NumerousClientInternals
     #
     # All metrics for the given user (default is your own)
     #
-    # @param [String] userId 
+    # @param [String] userId
     #    optional - numeric id (represented as a string) of user
     # @yield [m] metrics
     # @yieldparam m [Hash] String-key representation of one metric
@@ -746,7 +743,7 @@ class Numerous  < NumerousClientInternals
     #
     # All subscriptions for the given user (default is your own)
     #
-    # @param [String] userId 
+    # @param [String] userId
     #    optional - numeric id (represented as a string) of user
     # @yield [s] subscriptions
     # @yieldparam s [Hash] String-key representation of one subscription
@@ -755,7 +752,7 @@ class Numerous  < NumerousClientInternals
     def subscriptions(userId:nil, &block)
         chunkedIterator(APIInfo[:subscriptions], { userId: userId }, block)
         return self
-    end    
+    end
 
 
     #
@@ -765,7 +762,7 @@ class Numerous  < NumerousClientInternals
     #
     # @param [Fixnum] count
     #    optional - number of metrics to return
-    # @return [Array] Array of hashes (metric string dicts). Each element 
+    # @return [Array] Array of hashes (metric string dicts). Each element
     #    represents a particular popular metric.
     #
     def mostPopular(count:nil)
@@ -776,7 +773,7 @@ class Numerous  < NumerousClientInternals
     #
     # Verify connectivity to the server
     #
-    # @return [true] Always returns true connectivity if ok. 
+    # @return [true] Always returns true connectivity if ok.
     #     Raises an exception otherwise.
     # @raise [NumerousAuthError] Your credentials are no good.
     # @raise [NumerousError] Other server (or network) errors.
@@ -792,10 +789,10 @@ class Numerous  < NumerousClientInternals
     # @param label [String] Required. Label for the metric.
     # @param value [Fixnum,Float] Optional (keyword arg). Initial value.
     # @param attrs [Hash] Optional (keyword arg). Initial attributes.
-    # @return [NumerousMetric] 
+    # @return [NumerousMetric]
     #
     # @example Create a metric with label 'bozo' and set value to 17
-    #  nr = Numerous.new('nmrs_3vblahblah') 
+    #  nr = Numerous.new('nmrs_3vblahblah')
     #  m = nr.createMetric('bozo')
     #  m.write(17)
     #
@@ -821,7 +818,7 @@ class Numerous  < NumerousClientInternals
     #
     # Instantiate a metric object to access a metric from the server.
     # @return [NumerousMetric] metric object
-    # @param id [String] 
+    # @param id [String]
     #     Required. Metric ID (something like '2319923751024'). NOTE: If id
     #     is bogus this will still "work" but (of course) errors will be
     #     raised when you do something with the metric.
@@ -839,7 +836,7 @@ class Numerous  < NumerousClientInternals
     #
     # @param [String] labelspec The name (label) or regexp
     # @param [String] matchType 'FIRST','BEST','ONE','STRING' or 'ID'
-    # @param [Numerous] nr 
+    # @param [Numerous] nr
     #    The {Numerous} object that will be used to access this metric.
     def metricByLabel(labelspec, matchType:'FIRST')
         def raiseConflict(s1,s2)
@@ -985,7 +982,7 @@ class Numerous  < NumerousClientInternals
     	    # replace() bcs there might be a trailing newline on naked creds
     	    # (usually happens with a file or stdin)
     	    j[credsAPIKey] = s.sub("\n",'')
-        end 
+        end
 
     	return j[credsAPIKey]
     end
@@ -1008,12 +1005,12 @@ end
 # will return just the naked number unless you ask it for the entire dictionary)
 #
 # For some operations the server returns only a success/failure code.
-# In those cases there is no useful return value from the method; the 
+# In those cases there is no useful return value from the method; the
 # method succeeds or else raises an exception (containing the failure code).
 #
 # For the collection operations the server returns a JSON array of dictionary
 # representations, possibly "chunked" into multiple request/response operations.
-# The enumerator methods (e.g., "events") implement lazy-fetch and hide 
+# The enumerator methods (e.g., "events") implement lazy-fetch and hide
 # the details of the chunking from you. They simply yield each individual
 # item (string-key Hash) to your block.
 #
@@ -1027,7 +1024,7 @@ class NumerousMetric < NumerousClientInternals
     # Constructor for a NumerousMetric
     #
     # @param [String] id The metric ID string.
-    # @param [Numerous] nr 
+    # @param [Numerous] nr
     #    The {Numerous} object that will be used to access this metric.
     #
     # "id" should normally be the naked metric id (as a string).
@@ -1097,7 +1094,7 @@ class NumerousMetric < NumerousClientInternals
     attr_reader :nr
 
 
-    APIInfo = {                             
+    APIInfo = {
       # read/update/delete a metric
       metric: {
         path: '/v1/metrics/%{metricId}' ,
@@ -1199,11 +1196,22 @@ class NumerousMetric < NumerousClientInternals
     end
     private :getAPI
 
+    # for things, such as [ ], that need a cached copy of the metric's values
     def ensureCache()
-        if not @cachedHash
-            ignored = read()    # just reading brings cache into being
+        begin
+            if not @cachedHash
+                ignored = read()    # just reading brings cache into being
+            end
+        rescue NumerousError => x
+            raise x             # definitely pass these along
+        rescue => x             # anything else turn into a NumerousError
+            # this is usually going to be all sorts of random low-level
+            # network problems (if the network fails at the exact wrong time)
+            details = { exception: x }
+            raise NumerousError.new("Could not obtain metric state", 0, details)
         end
     end
+    private :ensureCache
 
     # access cached copy of metric via [ ]
     def [](idx)
@@ -1222,7 +1230,7 @@ class NumerousMetric < NumerousClientInternals
         ensureCache()
         return @cachedHash.keys
     end
-        
+
     # string representation of a metric
     def to_s()
        # there's nothing important/magic about the object id displayed; however
@@ -1267,7 +1275,7 @@ class NumerousMetric < NumerousClientInternals
     # "Validate" a metric object.
     # There really is no way to do this in any way that carries much weight.
     # However, if a user gives you a metricId and you'd like to know if
-    # that actually IS a metricId, this might be useful. 
+    # that actually IS a metricId, this might be useful.
     #
     # @example
     #    someId = ... get a metric ID from someone ...
@@ -1279,7 +1287,7 @@ class NumerousMetric < NumerousClientInternals
     # Realize that even a valid metric can be deleted asynchronously
     # and thus become invalid after being validated by this method.
     #
-    # Reads the metric, catches the specific exceptions that occur for 
+    # Reads the metric, catches the specific exceptions that occur for
     # invalid metric IDs, and returns True/False. Other exceptions mean
     # something else went awry (server down, bad authentication, etc).
     # @return [Boolean] validity of the metric
@@ -1288,7 +1296,7 @@ class NumerousMetric < NumerousClientInternals
             ignored = read()
             return true
         rescue NumerousError => e
-            # bad request (400) is a completely bogus metric ID whereas 
+            # bad request (400) is a completely bogus metric ID whereas
             # not found (404) is a well-formed ID that simply does not exist
             if e.code == 400 or e.code == 404
                 return false
@@ -1329,7 +1337,7 @@ class NumerousMetric < NumerousClientInternals
         return self
     end
 
-    # Enumerate the interactions (like/comment/error) of a metric. 
+    # Enumerate the interactions (like/comment/error) of a metric.
     #
     # @yield [i] interactions
     # @yieldparam i [Hash] String-key representation of one interaction.
@@ -1375,7 +1383,7 @@ class NumerousMetric < NumerousClientInternals
     # Obtain your subscription parameters on a given metric
     #
     # Note that normal users cannot see other user's subscriptions.
-    # Thus the "userId" parameter is somewhat pointless; you can only 
+    # Thus the "userId" parameter is somewhat pointless; you can only
     # ever see your own.
     # @param [String] userId
     # @return [Hash] your subscription attributes
@@ -1384,7 +1392,7 @@ class NumerousMetric < NumerousClientInternals
         return @nr.simpleAPI(api)
     end
 
-    # Subscribe to a metric. 
+    # Subscribe to a metric.
     #
     # See the NumerousApp API docs for what should be
     # in the dict. This function will fetch the current parameters
@@ -1417,7 +1425,7 @@ class NumerousMetric < NumerousClientInternals
     #
     # @param [Fixnum|Float] newval Required. Value to be written.
     #
-    # @param [Boolean] onlyIf 
+    # @param [Boolean] onlyIf
     #   Optional (keyword arg). Only creates an event at the server
     #   if the newval is different from the current value. Raises
     #   NumerousMetricConflictError if there is no change in value.
@@ -1473,7 +1481,7 @@ class NumerousMetric < NumerousClientInternals
     #   with your updates before writing them back. If true your supplied
     #   dictionary will become the entirety of the metric's parameters, and
     #   any parameters you did not include in your dictionary will revert to
-    #   their default values. 
+    #   their default values.
     # @return [Hash] string-key Hash of the new metric parameters.
     #
     def update(dict, overwriteAll:false)
@@ -1579,9 +1587,9 @@ class NumerousMetric < NumerousClientInternals
 
     # Obtain the underlying photoURL for a metric.
     #
-    # The photoURL is available in the metrics parameters so you could 
+    # The photoURL is available in the metrics parameters so you could
     # just read(dictionary:true) and obtain it that way. However this goes
-    # one step further ... the URL in the metric itself still requires 
+    # one step further ... the URL in the metric itself still requires
     # authentication to fetch (it then redirects to the "real" underlying
     # static photo URL). This function goes one level deeper and
     # returns you an actual, publicly-fetchable, photo URL.
