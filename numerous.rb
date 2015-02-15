@@ -182,7 +182,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150214-1.0.1xx'
+    VersionString = '20150215-1.0.1xx'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -341,7 +341,19 @@ class NumerousClientInternals
         @arbitraryMaximumTries.times do |attempt|
 
             @statistics[:serverRequests] += 1
+            t0 = Time.now
             resp = @http.request(rq)
+            et = Time.now - t0
+            # We report the elapsed round-trip time, either as a scalar (default)
+            # OR if you preset the :serverResponseTimes to be an array of length N
+            # then we keep the last N response times, thusly:
+            begin
+                times = @statistics[:serverResponseTimes]
+                times.insert(0, et)
+                times.pop()
+            rescue NoMethodError         # just a scalar
+                @statistics[:serverResponseTimes] = et
+            end
 
             if @debugLevel > 0
                 puts "Response headers:\n"
@@ -571,6 +583,9 @@ class NumerousClientInternals
 
         if attempt > 0
             stats[:throttleMultipleAttempts] += 1
+            if attempt > stats[:throttleMaxAttempt]
+                stats[:throttleMaxAttempt] = attempt
+            end
         end
 
         backarray = [ 2, 5, 15, 30, 60 ]
@@ -836,8 +851,7 @@ class Numerous  < NumerousClientInternals
     #
     # @param [String] labelspec The name (label) or regexp
     # @param [String] matchType 'FIRST','BEST','ONE','STRING' or 'ID'
-    # @param [Numerous] nr
-    #    The {Numerous} object that will be used to access this metric.
+    #
     def metricByLabel(labelspec, matchType:'FIRST')
         def raiseConflict(s1,s2)
             raise NumerousMetricConflictError.new("Multiple matches", 409, [s1, s2])
