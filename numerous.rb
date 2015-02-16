@@ -182,7 +182,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150215-1.0.2'
+    VersionString = '20150216-1.0.2x'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -568,9 +568,7 @@ class NumerousClientInternals
     #            sort of rate-limit failure and should be discarded. The original
     #            request will be sent again. Obviously it's a very bad idea to
     #            return true in cases where the server might have done some
-    #            anything non-idempotent. We assume that a 429 ("Too Many") or
-    #            a 500 ("Too Busy") response from the server means the server didn't
-    #            actually do anything (so a retry, timed appropriately, is ok)
+    #            anything non-idempotent.
     #
     # All of this seems overly general for what basically amounts to "sleep sometimes"
     #
@@ -594,13 +592,6 @@ class NumerousClientInternals
         else
             stats[:throttleMaxed] += 1
             next false               # too many tries
-        end
-
-        # if the server actually has failed with too busy, sleep and try again
-        if tparams[:resultCode] == 500
-            stats[:throttle500] += 1
-            sleep(backoff)
-            next true
         end
 
         # if we weren't told to back off, no need to retry
@@ -1112,7 +1103,9 @@ class NumerousMetric < NumerousClientInternals
       # read/update/delete a metric
       metric: {
         path: '/v1/metrics/%{metricId}' ,
-        # no entries needed for GET/PUT because no special codes etc
+        PUT: {        # note that PUT has a /v2 interface but GET does not (yet?).
+            path: '/v2/metrics/%{metricId}'
+        },
         DELETE: {
             successCodes: [ 204 ]
         }

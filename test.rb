@@ -322,6 +322,16 @@ def numTests(nr, opts)
     end
 
 
+    # test some of the /v2 parameters
+    testingMsg("Updating metric graphing options to test /v2")
+    g = { "defaultGraphType" => "bar" }
+    m.update({ "graphingOptions" => g } )
+    rg = m.read(dictionary:true)["graphingOptions"]
+    if rg != g
+        failedMsg("Got #{rg} expected #{g}")
+        return false
+    end
+
     # like a metric
     testingMsg("m.like")
     m.like
