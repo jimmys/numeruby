@@ -1,7 +1,7 @@
 #
 # The MIT License (MIT)
 #
-# Copyright (c) 2014 Neil Webber
+# Copyright (c) 2015 Neil Webber
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -39,12 +39,17 @@ require 'net/http'
 require 'uri'
 
 #
-# NumerousError exceptions indicate errors from the server
+# == NumerousError
+#
+# Exceptions indicate errors from the server
 #
 class NumerousError < StandardError
+
     #
-    # @!attribute msg
-    #      human-targeted error message as a string
+    # initialize a NumerousError
+    #
+    # @param msg
+    #      StandardError message attribute
     #
     # @!attribute code
     #      HTTP error code (e.g., 404)
@@ -53,7 +58,6 @@ class NumerousError < StandardError
     #      hash containing more ad-hoc information, most usefully :id which
     #      is the URL that was used in the request to the server
     #
-
     def initialize(msg, code, details)
         super(msg)
         @code = code
@@ -106,6 +110,7 @@ class NumerousClientInternals
     def initialize(apiKey, server:'api.numerousapp.com',
                            throttle:nil, throttleData:nil)
 
+        # specifying apiKey=nil asks us to get key from various default places.
         if not apiKey
             apiKey = Numerous.numerousKey()
         end
@@ -130,7 +135,8 @@ class NumerousClientInternals
         #     [ 1 ] - specific data for Proc
         #     [ 2 ] - "up" tuple for chained policy
         #
-        # and the default policy uses the "data" (40) as the voluntary backoff point
+        # and the default policy uses the "data" as a hash of parameters:
+        #    :voluntary -- the threshold point for voluntary backoff
         #
         @arbitraryMaximumTries = 10
         voluntary = { voluntary: 40}
@@ -143,7 +149,7 @@ class NumerousClientInternals
             @throttlePolicy = [throttle, throttleData, @throttlePolicy]
         end
 
-        @statistics = Hash.new { |h, k| h[k] = 0 }  # just useful debug/testing info
+        @statistics = Hash.new { |h, k| h[k] = 0 }  # statistics are "infotainment"
         @debugLevel = 0
 
     end
@@ -151,8 +157,11 @@ class NumerousClientInternals
     attr_reader :serverName, :debugLevel
     attr_reader :statistics
 
+    # String representation of Numerous
+    #
+    # @return [String] Human-appropriate string representation.
     def to_s()
-        oid = (2 * self.object_id).to_s(16)
+        oid = (2 * self.object_id).to_s(16)  # XXX "2*" makes it match native to_s
         return "<Numerous {#{@serverName}} @ 0x#{oid}>"
     end
 
@@ -172,8 +181,13 @@ class NumerousClientInternals
         return prev
     end
 
-    # XXX This is primarily for testing; control filtering of bogus duplicates
-    #     If you are calling this you are probably doing something wrong.
+    #
+    # This is primarily for testing; control filtering of bogus duplicates
+    # @note If you are calling this you are probably doing something wrong.
+    #
+    # @param [Boolean] f
+    #    New value for duplicate filtering flag.
+    # @return [Boolean] Previous value of duplicate filtering flag.
     def setBogusDupFilter(f)
         prev = @filterDuplicates
         @filterDuplicates = f
@@ -197,7 +211,6 @@ class NumerousClientInternals
     # and fills in the variable fields in URLs. It returns an "api context"
     # containing all the API-specific details needed by simpleAPI.
     #
-
     def makeAPIcontext(info, whichOp, kwargs={})
         rslt = {}
         rslt[:httpMethod] = whichOp
@@ -238,8 +251,9 @@ class NumerousClientInternals
     BCharsLen = BChars.length
 
     def makeboundary(s)
-        # Just try something fixed, and if it is no good extend it with random
-        b = "RoLlErCaSeDbOuNdArY8675309".b
+        # Just try something fixed, and if it is no good extend it with random.
+        # For amusing porpoises make it this way so we don't also contain it.
+        b = "RoLlErCaSeDbOuNdArY867".b + "5309".b
         while s.include? b
             b += BChars[rand(BCharsLen)]
         end
@@ -529,9 +543,7 @@ class NumerousClientInternals
     # return true to force a retry or false to accept this response as-is.
     #
     # The policy this implements:
-    #    if the server failed with too busy, do backoff based on attempt number
-    #
-    #    if we are "getting close" to our limit, arbitrarily delay ourselves
+    #    if we are "getting close" to our limit, arbitrarily delay ourselves.
     #
     #    if we truly got spanked with "Too Many Requests"
     #    then delay the amount of time the server told us to delay.
@@ -926,6 +938,12 @@ class Numerous  < NumerousClientInternals
     # ignore it or delete from their own tree :)
     #
 
+    # find an apikey from various default places
+    # @param [String] s
+    #    See documentation for details; a file name or a key or a "readable" object.
+    # @param [String] credsAPIKey
+    #    Key to use in accessing json dict if one is found.
+    # @return [String] the API key.
     def self.numerousKey(s:nil, credsAPIKey:'NumerousAPIKey')
 
     	if not s

@@ -48,7 +48,7 @@ end
 
 
 
-# Typically the PID is used but can be any integer that 
+# Typically the PID is used but can be any integer that
 # (ideally) isn't always the same
 def numTests(nr, opts)
     testLabelPrefix = "TESTXXX-"
@@ -125,8 +125,8 @@ def numTests(nr, opts)
         mx = nr.metricByLabel(/#{middlePart}/, matchType:'ONE')
         failedMsg("Failed ... didn't throw exception")
         return false
-    rescue NumerousMetricConflictError
-        resultsMsg("Correctly caught ConflictError")
+    rescue NumerousMetricConflictError => e
+        resultsMsg("Correctly caught ConflictError, message: #{e.message}")
     end
 
     testingMsg("Looking up using BEST")
@@ -168,7 +168,7 @@ def numTests(nr, opts)
 
     cmt = "This be a righteously commentatious comment"
     cId = m.comment(cmt)
-    m.interactions do |v| 
+    m.interactions do |v|
         if v['commentBody'] == cmt
             break
         else
@@ -213,7 +213,7 @@ def numTests(nr, opts)
     # delete that altered value write
     m.eventDelete(id)
 
-    # and so now expect the onlyIf to fail 
+    # and so now expect the onlyIf to fail
     if not onlyIfTest(m, testVary, expectX:true)
         return false
     end
@@ -271,7 +271,7 @@ def numTests(nr, opts)
     m.write(17)
     m.write(3, add:true)
     m.write(-21, add:true)
-    
+
     # should be -1 now
     if m.read != -1
         failedMsg("*** FAILED: #{m.read(dictionary:true)}")
@@ -280,12 +280,12 @@ def numTests(nr, opts)
 
     infoMsg("server response time data: #{nr.statistics[:serverResponseTimes]}")
 
-    # test error 
+    # test error
     testingMsg("Setting an error")
     errText = "This is the error info"
     m.sendError(errText)
 
-    e2 = m.interactions { |e| break e['commentBody'] } 
+    e2 = m.interactions { |e| break e['commentBody'] }
 
     if errText != e2
         failedMsg("Got #{e2} instead of #{errText}")
@@ -354,7 +354,7 @@ def numTests(nr, opts)
 
     # current value should be last one sent
     testingMsg("read back last value")
-    if m.read != vals[-1] 
+    if m.read != vals[-1]
         failedMsg("Value is #{m.read}")
         return false
     end
@@ -365,7 +365,7 @@ def numTests(nr, opts)
 
     testingMsg("verifying no change in value")
     # current value should be last one sent
-    if m.read != vals[-1] 
+    if m.read != vals[-1]
         failedMsg("Value is #{m.read}")
         return false
     end
@@ -388,7 +388,7 @@ def numTests(nr, opts)
     m.eventDelete(ids[-1])
     # current value should be last one sent
     testingMsg("appropriate change in value")
-    if m.read != vals[-2] 
+    if m.read != vals[-2]
         failedMsg("Value is #{m.read}")
         return false
     end
@@ -450,7 +450,7 @@ def numTests(nr, opts)
         failedMsg(" ... Reslt: Length #{resp.body.length} /#{resp.body}/")
         return false
     end
-    
+
     # timer testing
 
     mAttrs = {'private' => true, 'kind' => 'timer'}
@@ -483,7 +483,7 @@ def numTests(nr, opts)
     if gotAny
         failedMsg("GOT SOMETHING!")
         return false
-    end    
+    end
 
 
     # now to test the chunking functions
@@ -514,7 +514,7 @@ def numTests(nr, opts)
         return false
     end
 
-    # see if we got them all there. 
+    # see if we got them all there.
     verified=[]
     n = 0
     nr.metrics do |mh|
@@ -611,7 +611,7 @@ OptionParser.new do |opts|
     opts.on("-h", "--help", "Display this screen") { puts opts; exit 0 }
 
 
-end.parse!     
+end.parse!
 
 nr = Numerous.new(options[:creds])
 
@@ -622,10 +622,10 @@ end
 begin
   if not numTests(nr, options); exitStatus = 1 end
 rescue NumerousError => e
-  puts "Test failed/exception:: #{e.inspect}" 
+  puts "Test failed/exception:: #{e.inspect}"
   exitStatus = 1
-rescue NoMethodError 
-  puts "something went really wrong got NoMethodError"
+rescue NoMethodError => e
+  puts "something went really wrong got NoMethodError #{e.inspect}"
   exitStatus = 1
 end
 
