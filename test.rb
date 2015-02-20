@@ -46,6 +46,26 @@ end
 
 
 
+# convenience function:
+#   creates a PRIVATE metric
+#   accepts additional attrs
+#   automatically pushes the metric onto the given list
+#   (used to push the metric onto the "delete These" list)
+#
+#   automatically prints an info message
+def privateDeletableMetric(nr, label, pushTo, attrs:nil)
+    if not attrs
+        attrs = { 'private' => true }
+    else
+        attrs = attrs.clone
+        attrs['private'] = true
+    end
+    infoMsg("Creating #{label} with attrs #{attrs}")
+    m = nr.createMetric(label, attrs:attrs)
+    pushTo.push m
+    return m
+end
+
 
 
 # Typically the PID is used but can be any integer that
@@ -78,9 +98,7 @@ def numTests(nr, opts)
     testingMsg("nr.createMetric(#{mAttrs})")
 
     mName = "#{testLabelPrefix}NumerousAPI#{testVary}"
-    resultsMsg(mName)
-    m = nr.createMetric(mName, attrs:mAttrs)
-    $deleteTheseMetrics.push m
+    m = privateDeletableMetric(nr, mName, $deleteTheseMetrics, attrs:mAttrs)
 
     resultsMsg("Created: #{m}")
     if m.read != mVal
@@ -110,7 +128,7 @@ def numTests(nr, opts)
     # semi-random order on purpose
     for i in [3, 1, 4, 5, 2]
         mOneStr =  "#{testLabelPrefix}#{middlePart}-"+xxx[i-1]
-        $deleteTheseMetrics.push nr.createMetric(mOneStr)
+        privateDeletableMetric(nr, mOneStr, $deleteTheseMetrics)
     end
 
     begin
@@ -147,6 +165,17 @@ def numTests(nr, opts)
     if (mx.id != mx2.id) or (mx['value'] != mx2['value'])
         failedMsg('Looking up by ByLabel/ID failed to get the correct metric')
         return false
+    end
+
+    # test the conflict part of 'STRING' ... make a second metric matching mx label
+    privateDeletableMetric(nr, mx['label'], $deleteTheseMetrics)
+    begin
+        testingMsg("Looking up a duplicated label with matchType:STRING")
+        ignored = nr.metricByLabel(mx['label'], matchType:'STRING')
+        failedMsg("Failed ... didn't throw exception")
+        return false
+    rescue NumerousMetricConflictError => e
+        resultsMsg("Correctly caught ConflictError, message: #{e.message}")
     end
 
     # write a value see if it gets there
@@ -456,8 +485,8 @@ def numTests(nr, opts)
     mAttrs = {'private' => true, 'kind' => 'timer'}
     testingMsg("nr.createMetric(#{mAttrs})")
 
-    mtmr = nr.createMetric("#{testLabelPrefix}TMR-NmAPI#{testVary}", attrs:mAttrs)
-    $deleteTheseMetrics.push mtmr
+    name = "#{testLabelPrefix}TMR-NmAPI#{testVary}"
+    mtmr = privateDeletableMetric(nr, name, $deleteTheseMetrics, attrs:mAttrs)
     resultsMsg("created #{mtmr}")
 
 
@@ -466,11 +495,8 @@ def numTests(nr, opts)
     mtmr.write(123456)
 
     # create a virgin metric to bang on
-    mAttrs = {'private' => true}
-    testingMsg("nr.createMetric(#{mAttrs})")
-
-    mvir = nr.createMetric("#{testLabelPrefix}V-NumerousAPI#{testVary}", attrs:mAttrs)
-    $deleteTheseMetrics.push mvir
+    name = "#{testLabelPrefix}V-NumerousAPI#{testVary}"
+    mvir = privateDeletableMetric(nr, name, $deleteTheseMetrics)
     resultsMsg("Created: #{mvir}")
 
     # verify that the collection flavors all work correctly on virgin metric
@@ -499,14 +525,11 @@ def numTests(nr, opts)
 
     testingMsg("making #{nMetrics} metrics")
     oneName = 'XXX-DELETEME-XXX'   # we can make them all with the same name
-    mAttrs = {'private' => true}
     lotsaMetrics = []
     nMetrics.times do |i|
-        resultsMsg("making #{i}")
-        mAttrs['value'] = i
-        x = nr.createMetric(oneName, attrs:mAttrs)
+        mAttrs = {'value' => i }
+        x = privateDeletableMetric(nr, oneName, $deleteTheseMetrics, attrs:mAttrs)
         lotsaMetrics.push x
-        $deleteTheseMetrics.push x
     end
 
     if lotsaMetrics.length != nMetrics
@@ -538,9 +561,7 @@ def numTests(nr, opts)
 
     # do the same thing for events and interactions, but less rigorously
 
-    mAttrs = {'private' => true, 'value' => 0}
-    m = nr.createMetric(oneName, attrs:mAttrs)    # yet another metric
-    $deleteTheseMetrics.push m
+    m = privateDeletableMetric(nr, oneName, $deleteTheseMetrics)
 
     nTimes = 300
     if opts[:quick]
