@@ -196,7 +196,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150216-1.0.2x'
+    VersionString = '20150219-1.0.2x'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -847,6 +847,11 @@ class Numerous  < NumerousClientInternals
         return NumerousMetric.new(id, self)
     end
 
+    # just a DRY shorthand for use in metricByLabel
+    RaiseConflict = lambda { |s1, s2|
+        raise NumerousMetricConflictError.new("Multiple matches", 409, [s1, s2])
+    }
+    private_constant :RaiseConflict
 
     #
     # Version of metric() that accepts a name (label)
@@ -856,9 +861,6 @@ class Numerous  < NumerousClientInternals
     # @param [String] matchType 'FIRST','BEST','ONE','STRING' or 'ID'
     #
     def metricByLabel(labelspec, matchType:'FIRST')
-        def raiseConflict(s1,s2)
-            raise NumerousMetricConflictError.new("Multiple matches", 409, [s1, s2])
-        end
 
         bestMatch = [ nil, 0 ]
 
@@ -892,7 +894,7 @@ class Numerous  < NumerousClientInternals
             if matchType == 'STRING'        # exact full match required
                 if m['label'] == labelspec
                     if bestMatch[0]
-                        raiseConflict(bestMatch[0]['label'], m['label'])
+                        RaiseConflict.call(bestMatch[0]['label'], m['label'])
                     end
                     bestMatch = [ m, 1 ]   # the length is irrelevant with STRING
                 end
@@ -902,7 +904,7 @@ class Numerous  < NumerousClientInternals
                     if matchType == 'FIRST'
                         return self.metric(m['id'])
                     elsif (matchType == 'ONE') and (bestMatch[1] > 0)
-                        raiseConflict(bestMatch[0]['label'], m['label'])
+                        RaiseConflict.call(bestMatch[0]['label'], m['label'])
                     end
                     if mm[0].length > bestMatch[1]
                         bestMatch = [ m, mm[0].length ]
