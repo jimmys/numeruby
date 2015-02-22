@@ -75,11 +75,27 @@ class NumerousAuthError < NumerousError
 end
 
 #
+# A NumerousNetworkError occurs when there is a "somewhat normal" network
+# error. The library catches the lower level exceptions that normally happen
+# when the network is down or the HTTP connection times out and translates
+# those into this exception so you can rescue this without being exposed to
+# all the details of the lower-level networking exceptions.
+#
+class NumerousNetworkError < NumerousError
+    def initialize(xc)
+        super("Network Error", -1, { :netException => xc })
+    end
+end
+
+#
 # A NumerousMetricConflictError occurs when you write to a metric
 # and specified "only if changed" and your value
 # was (already) the current value
 #
 class NumerousMetricConflictError < NumerousError
+    def initialize(msg, details)
+        super(msg, 409, details)
+    end
 end
 
 #
@@ -107,7 +123,7 @@ class NumerousClientInternals
     # @!attribute [r] debugLevel
     #    @return [Fixnum] Current debugging level; use debug() method to change.
     #
-    def initialize(apiKey, server:'api.numerousapp.com',
+    def initialize(apiKey=nil, server:'api.numerousapp.com',
                            throttle:nil, throttleData:nil)
 
         # specifying apiKey=nil asks us to get key from various default places.
@@ -196,7 +212,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150219-1.0.2x'
+    VersionString = '20150222-1.1.0'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -356,7 +372,16 @@ class NumerousClientInternals
 
             @statistics[:serverRequests] += 1
             t0 = Time.now
-            resp = @http.request(rq)
+            begin
+                resp = @http.request(rq)
+            rescue StandardError => e
+                # it's PDB (pretty bogus) that we have to rescue
+                # StandardError but the underlying http library can just throw
+                # too many exceptions to know what they all are; it really
+                # should have encapsulated them into an HTTPNetError class...
+                # so, we'll just assume any "standard error" is a network issue
+                raise NumerousNetworkError.new(e)
+            end
             et = Time.now - t0
             # We report the elapsed round-trip time, either as a scalar (default)
             # OR if you preset the :serverResponseTimes to be an array of length N
@@ -391,7 +416,10 @@ class NumerousClientInternals
                    :resultCode=> resp.code.to_i,
                    :resp=> resp,
                    :statistics=> @statistics,
-                   :request=> { :httpMethod => api[:httpMethod], :url => path } }
+                   :request=> { :httpMethod => api[:httpMethod], 
+                                 :url => path,
+                                 :jdict => jdict }
+                 }
 
             td = @throttlePolicy[1]
             up = @throttlePolicy[2]
@@ -849,7 +877,7 @@ class Numerous  < NumerousClientInternals
 
     # just a DRY shorthand for use in metricByLabel
     RaiseConflict = lambda { |s1, s2|
-        raise NumerousMetricConflictError.new("Multiple matches", 409, [s1, s2])
+        raise NumerousMetricConflictError.new("Multiple matches", [s1, s2])
     }
     private_constant :RaiseConflict
 
@@ -1080,7 +1108,15 @@ class NumerousMetric < NumerousClientInternals
     # though it's handy sometimes in cut/paste interactive testing/use.
     #
 
-    def initialize(id, nr)
+    def initialize(id, nr=nil)
+
+        # If you don't specify a Numerous we'll make one for you.
+        # For this to work, NUMEROUSAPIKEY environment variable must exist.
+        #   m = NumerousMetric.new('234234234') is ok for simple one-shots
+        # but note it makes a private Numerous for every metric.
+
+        nr ||= Numerous.new(nil)
+
         actualId = nil
         begin
             fields = id.split('/')
@@ -1462,6 +1498,17 @@ class NumerousMetric < NumerousClientInternals
     #   causes the server to ADD newval to the current metric value.
     #   Note that this IS atomic at the server. Two clients doing
     #   simultaneous ADD operations will get the correct (serialized) result.
+    #
+    # @param [String] updated
+    #   updated allows you to specify the timestamp associated with the value
+    #     -- it must be a string in the format described in the NumerousAPI
+    #        documentation. Example: '2015-02-08T15:27:12.863Z'
+    #        NOTE: The server API implementation REQUIRES the fractional
+    #              seconds be EXACTLY 3 digits. No other syntax will work.
+    #              You will get 400/BadRequest if your format is incorrect.
+    #              In particular a direct strftime won't work; you will have
+    #              to manually massage it to conform to the above syntax.
+    #
     # @param [Boolean] dictionary
     #   If true the entire metric will be returned as a string-key Hash;
     #   else (false/default) the bare number (Fixnum or Float) for the
@@ -1470,13 +1517,16 @@ class NumerousMetric < NumerousClientInternals
     #   value of the metric is returned as a bare number.
     # @return [Hash] if dictionary is true the entire new metric is returned.
     #
-    def write(newval, onlyIf:false, add:false, dictionary:false)
+    def write(newval, onlyIf:false, add:false, dictionary:false, updated:nil)
         j = { 'value' => newval }
         if onlyIf
             j['onlyIfChanged'] = true
         end
         if add
             j['action'] = 'ADD'
+        end
+        if updated
+            j['updated'] = updated
         end
 
         @cachedHash = nil  # will need to refresh cache on next access
@@ -1488,7 +1538,7 @@ class NumerousMetric < NumerousClientInternals
             # if onlyIf was specified and the error is "conflict"
             # (meaning: no change), raise ConflictError specifically
             if onlyIf and e.code == 409
-                raise NumerousMetricConflictError.new("No Change", 0, e.details)
+                raise NumerousMetricConflictError.new("No Change", e.details)
             else
                 raise e        # never mind, plain NumerousError is fine
             end
@@ -1657,6 +1707,16 @@ class NumerousMetric < NumerousClientInternals
         v = read(dictionary:true)
         return v['links']['web']
     end
+
+    # the phone application generates a nmrs:// URL as a way to link to
+    # the application view of a metric (vs a web view). This makes
+    # one of those for you so you don't have to "know" the format of it.
+    #
+    # @return [String] nmrs:// style URL
+    def appURL
+        return "nmrs://metric/" + @id
+    end
+  
 
     # Delete a metric (permanently). Be 100% you want this, because there
     # is absolutely no undo.
