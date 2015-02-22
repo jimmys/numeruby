@@ -28,6 +28,9 @@ m = nr.metric(myMetric)
 
 m.write(33)
 
+# can also access fields this way:
+puts(m['label'])
+
 m.events { |v| puts "Event: /#{v}/\n" }
 m.stream { |v| puts "Stream: /#{v}/\n" }
 m.interactions { |v| puts "Interactions: /#{v}/\n" }
