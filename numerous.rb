@@ -416,7 +416,7 @@ class NumerousClientInternals
                    :resultCode=> resp.code.to_i,
                    :resp=> resp,
                    :statistics=> @statistics,
-                   :request=> { :httpMethod => api[:httpMethod], 
+                   :request=> { :httpMethod => api[:httpMethod],
                                  :url => path,
                                  :jdict => jdict }
                  }
@@ -1716,7 +1716,6 @@ class NumerousMetric < NumerousClientInternals
     def appURL
         return "nmrs://metric/" + @id
     end
-  
 
     # Delete a metric (permanently). Be 100% you want this, because there
     # is absolutely no undo.
