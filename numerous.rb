@@ -383,9 +383,9 @@ class NumerousClientInternals
                 raise NumerousNetworkError.new(e)
             end
             et = Time.now - t0
-            # We report the elapsed round-trip time, either as a scalar (default)
-            # OR if you preset the :serverResponseTimes to be an array of length N
-            # then we keep the last N response times, thusly:
+            # We report the elapsed round-trip time, as a scalar (by default)
+            # OR if you preset the :serverResponseTimes to be an array
+            # of length N then we keep the last N response times, thusly:
             begin
                 times = @statistics[:serverResponseTimes]
                 times.insert(0, et)
@@ -534,19 +534,20 @@ class NumerousClientInternals
                     #
 		    # There is a bug in the NumerousApp server which can
 		    # cause collections to show duplicates of certain events
-		    # (or interactions/stream items). Explaining the bug in great
-		    # detail is beyond the scope here; suffice to say it only
-		    # happens for events that were recorded nearly-simultaneously
-		    # and happen to be getting reported right at a chunking boundary.
+		    # (or interactions/stream items). Explaining the bug in
+                    # great detail is beyond the scope here; suffice to say
+                    # it only happens for events that were recorded
+                    # nearly-simultaneously and happen to be getting reported
+                    # right at a chunking boundary.
                     #
                     # So we are filtering them out here. For a more involved
                     # discussion of this, see the python implementation. This
-                    # filtering "works" because it knows pragmatically how/where
-                    # the bug can show up
+                    # filtering "works" because it knows pragmatically
+                    # how/where the bug can show up
                     #
-                    # Turning off duplicate filtering is really meant only for testing.
+                    # Turning off duplicate filtering is for testing (only).
                     #
-                    # Not all API's require dupfiltering, hence the APIInfo test
+                    # Not all API's need dupfiltering, hence the APIInfo test
                     #
                     if (not filterInfo)    # the easy case, not filtering
                         block.call i
@@ -577,18 +578,18 @@ class NumerousClientInternals
     #    then delay the amount of time the server told us to delay.
     #
     # The arguments supplied to us are:
-    #     nr is the Numerous (handled explicitly so you can write external funcs too)
+    #     nr is the Numerous
     #     tparams is a Hash containing:
     #         :attempt         : the attempt number. Zero on the very first try
     #         :rateRemaining   : X-Rate-Limit-Remaining reported by the server
     #         :rateReset       : time (in seconds) until fresh rate granted
-    #         :resultCode      : HTTP code from the server (e.g., 409, 200, etc)
-    #         :resp            : the full-on response object if you must have it
+    #         :resultCode      : HTTP code from server (e.g., 409, 200, etc)
+    #         :resp            : the full-on response object
     #         :request         : information about the original request
-    #         :statistics      : place to record stats (purely informational stats)
+    #         :statistics      : place to record informational stats
     #         :debug           : current debug level
     #
-    #     td is the data you supplied as "throttleData" to the Numerous() constructor
+    #     td is the data you supplied as "throttleData" to Numerous.new()
     #     up is a tuple useful for calling the original system throttle policy:
     #          up[0] is the Proc
     #          up[1] is the td for *that* function
@@ -599,18 +600,18 @@ class NumerousClientInternals
     #
     # It's really (really really) important to understand the return value and
     # the fact that we are invoked AFTER each request:
-    #    false : simply means "don't do more retries". It does not imply anything
-    #            about the success or failure of the request; it simply means that
-    #            this most recent request (response) is the one to "take" as
+    #    false : means "don't do more retries". It does not imply anything
+    #            about the success or failure of the request; it simply means
+    #            this most recent request (response) is the one to use as
     #            the final answer
     #
     #    true  : means that the response is, indeed, to be interpreted as some
-    #            sort of rate-limit failure and should be discarded. The original
-    #            request will be sent again. Obviously it's a very bad idea to
-    #            return true in cases where the server might have done some
-    #            anything non-idempotent.
+    #            sort of rate-limit failure and should be discarded. The
+    #            original request will be sent again. Obviously it's a very
+    #            bad idea to return true in cases where the server might
+    #            have done anything non-idempotent.
     #
-    # All of this seems overly general for what basically amounts to "sleep sometimes"
+    # All of this seems overly general for what amounts to "sleep sometimes"
     #
 
     ThrottleDefault = Proc.new do |nr, tparams, td, up|
@@ -644,7 +645,7 @@ class NumerousClientInternals
             # voluntary arbitrary limit
             if rateleft >= 0 and rateleft < td[:voluntary]
                 stats[:throttleVoluntaryBackoff] += 1
-                # arbitrary .. 1 second if more than half left, 3 seconds if less
+                # arbitrary .. 1sec if more than half left, 3 secs if less
                 if (rateleft*2) > td[:voluntary]
                     sleep(1)
                 else
@@ -688,8 +689,10 @@ end
 # In those cases there is no useful return value from the method; the
 # method succeeds or else raises an exception (containing the failure code).
 #
-# For the collection operations the server returns a JSON array of dictionary
-# representations, possibly "chunked" into multiple request/response operations.
+# For the collection operations the server returns a JSON array
+# of dictionary representations, possibly "chunked" into multiple
+# request/response operations.
+#
 # The enumerator methods (e.g., "metrics") implement lazy-fetch and hide
 # the details of the chunking from you. They simply yield each individual
 # item (string-key Hash) to your block.
