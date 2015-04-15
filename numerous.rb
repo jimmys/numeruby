@@ -212,7 +212,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150222-1.1.0'
+    VersionString = '20150415-1.2.0--'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -1140,7 +1140,7 @@ class NumerousMetric < NumerousClientInternals
 
         if not actualId
             # well, see if it looks like an int
-            i = id.to_i     # allow this to raise exception if id bogus type here
+            i = id.to_i     # raises exception if id bogus type here
             if i == id
                 actualId = i.to_s
             end
@@ -1162,7 +1162,7 @@ class NumerousMetric < NumerousClientInternals
       # read/update/delete a metric
       metric: {
         path: '/v1/metrics/%{metricId}' ,
-        PUT: {        # note that PUT has a /v2 interface but GET does not (yet?).
+        PUT: {     # note that PUT has a /v2 interface but GET does not (yet?).
             path: '/v2/metrics/%{metricId}'
         },
         DELETE: {
@@ -1247,6 +1247,27 @@ class NumerousMetric < NumerousClientInternals
         path: '/v1/metrics/%{metricId}/photo',
         POST: {
             successCodes: [ 201 ]
+        },
+        DELETE: {
+            successCodes: [ 204 ]
+        }
+      },
+
+      # permissions collection
+      permissionsCollection: {
+        path: '/v1/metrics/%{metricId}/permissions',
+        # GET the permissions collection
+        GET: {
+            next: 'nextURL',
+            list: 'permissions'
+        }
+      },
+
+      # individual permissions : GET, PUT, DELETE
+      permission: {
+        path: '/v1/metrics/%{metricId}/permissions/%{userId}',
+        defaults: {
+            userId: 'me'            # default userId meaning "myself"
         },
         DELETE: {
             successCodes: [ 204 ]
@@ -1423,6 +1444,16 @@ class NumerousMetric < NumerousClientInternals
         return self
     end
 
+    # Enumerate the permissions of a metric.
+    #
+    # @yield [p] permissions
+    # @yieldparam p [Hash] String-key representation of one permission
+    # @return [NumerousMetric] self
+    def permissions(&block)
+        @nr.chunkedIterator(APIInfo[:permissionsCollection], {metricId:@id}, block)
+        return self
+    end
+
 
     # Obtain a specific metric event from the server
     #
@@ -1456,6 +1487,42 @@ class NumerousMetric < NumerousClientInternals
     def subscription(userId=nil)
         api = getAPI(:subscription, :GET, {userId: userId})
         return @nr.simpleAPI(api)
+    end
+
+    # Obtain a specific permission resource for the given user
+    #
+    # @param [String] userId The specific user ID
+    # @return [Hash] The string-key hash of the permission
+    # @raise [NumerousError] Not found (.code will be 404)
+    #
+    def get_permission(userId=nil)
+        api = getAPI(:permission, :GET, {userId: userId})
+        return @nr.simpleAPI(api)
+    end
+
+    # Set a permission for the given user
+    # @param [Hash] perms
+    #   string-key hash of subscription parameters
+    # @param [String] userId
+    #   Optional (keyword arg). UserId (defaults to you)
+    def set_permission(perms, userId=nil)
+        # if you don't specify a userId but DO have a userId
+        # in the perms, use that one
+        if (not userId) and perms.key? 'userId'
+            userId = perms['userId']
+        end
+        api = getAPI(:permission, :PUT, {userId: userId})
+        return @nr.simpleAPI(api, jdict:perms)
+    end
+
+    # Delete a permission resource for the given user
+    #
+    # @param [String] userId The specific user ID
+    #
+    def delete_permission(userId)
+        api = getAPI(:permission, :DELETE, {userId: userId})
+        ignored = @nr.simpleAPI(api)
+        return nil
     end
 
     # Subscribe to a metric.
