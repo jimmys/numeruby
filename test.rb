@@ -66,8 +66,6 @@ def privateDeletableMetric(nr, label, pushTo, attrs:nil)
     return m
 end
 
-
-
 # Typically the PID is used but can be any integer that
 # (ideally) isn't always the same
 def numTests(nr, opts)
@@ -309,7 +307,10 @@ def numTests(nr, opts)
 
     infoMsg("server response time data: #{nr.statistics[:serverResponseTimes]}")
 
-    # test error
+    # test error ... first turn off notifications (doh!)
+    testingMsg("turning off error notifications")
+    m.subscribe({ 'notifyOnError' => false })
+
     testingMsg("Setting an error")
     errText = "This is the error info"
     m.sendError(errText)
@@ -454,8 +455,111 @@ def numTests(nr, opts)
         return false
     end
 
+    infoMsg("Testing fine-grained permissions")
+    myUser = nr.user()
+    infoMsg("My user ID is #{myUser['id']} (#{myUser['userName']})")
+    if opts[:altcreds]
+        nr2 = Numerous.new(Numerous.numerousKey(s:opts[:altcreds]))
+        altUser = nr2.user()
+        infoMsg("Alternate user ID is #{altUser['id']} (#{altUser['userName']})")
+    else
+        nr2 = nil
+    end
+
+    testingMsg("Setting metric to private visibility")
+    m.update({'visibility' => 'private'})
+
+    # there shouldn't be any perms now
+    n = 0; m.permissions { n +=1 }
+    if n != 0
+        failedMsg("non-zero permissions, expected none")
+        return false
+    end
+    # set all the permissions for ourself. This is actually a no-op
+    # because perms don't apply to the owner; server might disallow some day?
+    allperms = [ 'readMetric', 'updateValue', 'editMetric', 'editPermissions' ]
+
+    p = {}
+    allperms.each { |x| p[x] = true }
+
+    testingMsg("Setting permissions on myself")
+    m.set_permission(p, myUser['id'])
+    n = 0; m.permissions { n +=1 }
+    if n != 1
+        failedMsg("Didn't work, did not find permission we just set")
+        return false
+    end
+
+    testingMsg("Reading back my specific permissions")
+    p2 = m.get_permission(myUser['id'])
+
+    allperms.each do |x|
+        if not p2[x]
+            failedMsg("Did not get back permission #{x}")
+            return false
+        end
+    end
+
+    if not nr2
+        infoMsg("skipping further perms tests because no second creds given")
+    else
+        m2 = nr2.metric(m['id'])
+
+        # try to read it with the secondary creds; should fail
+        knownval = 988
+        m.write(knownval)
+        testingMsg("Attempting to read via secondary creds")
+        begin
+            m2.read
+            failedMsg("Was able to read via secondary creds without perms")
+            return false
+        rescue NumerousError => e
+            if e.code != 403
+                failedMsg("Did not get proper exception")
+                return false
+            end
+        end
+
+        # give that user permission
+        testingMsg("Giving the alternate user read permission")
+        m.set_permission({'readMetric' => true }, altUser['id'])
+
+        # now this read should succeed
+        testingMsg("Trying read again")
+        if m2.read() != knownval
+            failedMsg("Didn't get proper readback")
+            return false
+        end
+
+        # then delete the perms and it should fail again
+        testingMsg("Deleting those perms")
+        m.delete_permission(altUser['id'])
+
+        testingMsg("reading again, now without perms")
+        begin
+            m2.read
+            failedMsg("Was able to read via secondary creds after perms deleted")
+            return false
+        rescue NumerousError => e
+            if e.code != 403
+                failedMsg("Did not get proper exception from deleted perms")
+                return false
+            end
+        end
+    end
+    infoMsg("cursory perms tests complete; full test was in python")
+
     # write a (one pixel) photo to the metric
-    img = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b".b
+
+    # this 35 byte GIF file is "debateably legal" and does not come
+    # back from the numerous server unchanged.
+    # img = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b".b
+    #
+    # whereas this 43 byte GIF file survives the round trip
+    #
+    img = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\xf0\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x00\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b".b
+
+
     testingMsg("setting photo")
     r = m.photo(img)
 
@@ -623,6 +727,10 @@ OptionParser.new do |opts|
         options[:creds] = c
     end
 
+    opts.on("-A", "--altcredentials CREDS", "secondary credential info") do |c|
+        options[:altcreds] = c
+    end
+
     opts.on("-Q", "--quick", "quick mode") { options[:quick] = true }
     opts.on("-D", "--debug", "debug") { options[:debug] = true }
     opts.on("-V", "--varyValue VAL", "variable value") do |v|
@@ -634,7 +742,9 @@ OptionParser.new do |opts|
 
 end.parse!
 
-nr = Numerous.new(options[:creds])
+k = Numerous.numerousKey(s:options[:creds])
+nr = Numerous.new(k)
+
 
 if not options[:vary]
     options[:vary] = $$     # ideally some value that is different each time
