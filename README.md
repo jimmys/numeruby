@@ -4,8 +4,6 @@ A ruby class implementing the [NumerousApp](http://www.numerousapp.com) [APIs](h
 
 ## Development Status
 
-Works, passes all my tests. 
-
 Packaged as a gem under the name "numerousapp" on rubygems.org
 
 ### New in 1.2.1
