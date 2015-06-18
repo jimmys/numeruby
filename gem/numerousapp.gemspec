@@ -1,8 +1,8 @@
 Gem::Specification.new do |s|
   s.name         = 'numerousapp'
-  s.version      = '1.2.0'
+  s.version      = '1.2.1'
   s.required_ruby_version = '>= 2.0.0'
-  s.date         = '2015-04-15'
+  s.date         = '2015-06-17'
   s.summary      = 'NumerousApp API'
   s.description  = 'Classes implementing the NumerousApp REST APIs for metrics. Requires Ruby 2.x'
   s.authors      = ["Neil Webber"]
