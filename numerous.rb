@@ -173,6 +173,7 @@ class NumerousClientInternals
     attr_reader :serverName, :debugLevel
     attr_reader :statistics
 
+
     # String representation of Numerous
     #
     # @return [String] Human-appropriate string representation.
@@ -189,10 +190,19 @@ class NumerousClientInternals
     def debug(lvl=1)
         prev = @debugLevel
         @debugLevel = lvl
+        # need to make sure we have started an http session
+        # (normally deferred until first API call)
+
         if @debugLevel > 0
+            # this is hokey, but it is what it is... it's for debug anyway
+            # we have to restart the session with debug on
+            @http = Net::HTTP.new(@serverName, @serverPort)
+            @http.use_ssl = true    # always required by NumerousApp
             @http.set_debug_output $stderr
+            @http = @http.start()
+            @need_restart = false
         else
-            @http.set_debug_output nil
+            @need_restart = true   # will force a new http session
         end
         return prev
     end
@@ -212,7 +222,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150617-1.2.1'
+    VersionString = '20150617-1.2.1++DEV'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -379,8 +389,6 @@ class NumerousClientInternals
                 # also where subsequent starts might be re-done after errors
 
                 if @need_restart or not @http.started?()
-
-                    # starting a session turns on keep-alive...
                     @http = Net::HTTP.new(@serverName, @serverPort)
                     @http.use_ssl = true    # always required by NumerousApp
                     @http = @http.start()
