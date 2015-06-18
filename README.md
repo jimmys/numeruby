@@ -8,6 +8,10 @@ Works, passes all my tests.
 
 Packaged as a gem under the name "numerousapp" on rubygems.org
 
+### New in 1.2.1
+
+* Performance fix: uses keep-alive so your second (and subsequent) API calls to the server will be MUCH faster. Depends on the particular API but the fastest ones will now be 60-70msec vs 300-ish msec without keep-alive. The first one will always be slow (300msec) though (TCP overhead, https negotiation, etc)
+
 ## Documentation Wiki
 
 Primary documentation is here on github: [wiki](https://github.com/outofmbufs/numeruby/wiki).
