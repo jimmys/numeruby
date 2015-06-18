@@ -222,7 +222,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150617-1.2.1++DEV'
+    VersionString = '20150618-1.2.2'
 
     MethMap = {
         GET: Net::HTTP::Get,
