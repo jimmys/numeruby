@@ -77,6 +77,14 @@ def numTests(nr, opts)
 
     if opts[:debug]
         nr.debug(1)
+    else
+        # we actually still want to test debug, for regression purposes
+        # (i.e., I broke it once, don't want to do that again)
+        # so ... cons up a temporary nr and try one thing with debug
+        infoMsg("Testing debug ... one call to nr.ping with debug on")
+        nr2  = Numerous.new(opts[:key])
+        nr2.debug(1)
+        nr2.ping()
     end
 
     # set it up to keep the last time server-response times (just for infotainment)
@@ -728,6 +736,10 @@ OptionParser.new do |opts|
 end.parse!
 
 k = Numerous.numerousKey(s:options[:creds])
+
+options[:key] = k
+
+
 nr = Numerous.new(k)
 
 
