@@ -6,6 +6,9 @@ A ruby class implementing the [NumerousApp](http://www.numerousapp.com) [APIs](h
 
 Packaged as a gem under the name "numerousapp" on rubygems.org
 
+The source here on github is the current/newest; what you get on rubygems (gem install) is the stable "released" version and so tends to lag behind the github code. Choose accordingly.
+
+
 ### New in 1.2.1
 
 * Performance fix: uses keep-alive so your second (and subsequent) API calls to the server will be MUCH faster. Depends on the particular API but the fastest ones will now be 60-70msec vs 300-ish msec without keep-alive. The first one will always be slow (300msec) though (TCP overhead, https negotiation, etc)
