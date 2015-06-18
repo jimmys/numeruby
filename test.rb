@@ -740,7 +740,36 @@ k = Numerous.numerousKey(s:options[:creds])
 options[:key] = k
 
 
-nr = Numerous.new(k)
+#
+# Just for grins ... we're going to use a custom Throttle function
+# to keep track of the fastest API call and the slowest API call
+#
+
+extra_stats = { :maxtime => 0, :mintime => 10000000 }
+
+throttleWrapper = Proc.new do | nr, tparams, td, up |
+    begin
+        et = nr.statistics[:serverResponseTimes]
+        ignored = et.to_i   # to force exception if Times is an array
+    rescue NoMethodError
+        et = nr.statistics[:serverResponseTimes][0]
+    end
+
+    if et > td[:maxtime]
+        td[:maxtime] = et
+        td[:maxRQ] = tparams[:request]
+    end
+    if et < td[:mintime]
+        td[:mintime] = et
+        td[:minRQ] = tparams[:request]
+    end
+
+
+    # invoke the system built-in throttle
+    up[0].call(nr, tparams, up[1], up[2])
+end
+
+nr = Numerous.new(k, throttle:throttleWrapper, throttleData:extra_stats)
 
 
 if not options[:vary]
@@ -759,4 +788,5 @@ end
 
 $deleteTheseMetrics.each { |m| m.crushKillDestroy }
 infoMsg("statistics: #{nr.statistics}")
+infoMsg("Additional: #{extra_stats}")
 exit(exitStatus)
