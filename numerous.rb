@@ -131,16 +131,16 @@ class NumerousClientInternals
             apiKey = Numerous.numerousKey()
         end
 
-        @serverName = server
         @auth = { user: apiKey, password: "" }
         u = URI.parse("https://"+server)
-        @http = Net::HTTP.new(server, u.port)
-        @http.use_ssl = true    # always required by NumerousApp
+        @serverName = server
+        @serverPort = u.port
 
         @agentString = "NW-Ruby-NumerousClass/" + VersionString +
                        " (Ruby #{RUBY_VERSION}) NumerousAPI/v2"
 
         @filterDuplicates = true     # see discussion elsewhere
+        @need_restart = true         # port will be opened in simpleAPI
 
         # throttling.
         # The arbitraryMaximum is just that: under no circumstances will we retry
@@ -212,7 +212,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150415-1.2.0'
+    VersionString = '20150617-1.2.1exp'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -373,7 +373,29 @@ class NumerousClientInternals
             @statistics[:serverRequests] += 1
             t0 = Time.now
             begin
+
+                # see note immediately below re "need_restart"
+                # this is where the very FIRST start() happens but
+                # also where subsequent starts might be re-done after errors
+
+                if @need_restart or not @http.started?()
+
+                    # starting a session turns on keep-alive...
+                    @http = Net::HTTP.new(@serverName, @serverPort)
+                    @http.use_ssl = true    # always required by NumerousApp
+                    @http = @http.start()
+                end
+
+                # A note on this need_restart true/false dance:
+                #    I have to admit I'm not sure if this is necessary or if
+                #    it is even a good/bad/irrelevant idea, but the concept
+                #    here is that if an error is encountered we'll ditch
+                #    the current start() session and make a new one next time
+
+                @need_restart = true    # will redo session if raise out
                 resp = @http.request(rq)
+                @need_restart = false
+
             rescue StandardError => e
                 # it's PDB (pretty bogus) that we have to rescue
                 # StandardError but the underlying http library can just throw
@@ -1332,7 +1354,6 @@ class NumerousMetric < NumerousClientInternals
            val = self['value']
            rslt += "'#{self['label']}' [#@id] = #{val}>"
        rescue NumerousError => x
-           puts(x.code)
            if x.code == 400
                rslt += "**INVALID-ID** '#@id'>"
            elsif x.code == 404

@@ -82,6 +82,11 @@ def numTests(nr, opts)
     # set it up to keep the last time server-response times (just for infotainment)
     nr.statistics[:serverResponseTimes] = [0]*10
 
+    if opts[:perfonly]
+        10.times { nr.user() }
+        return true
+    end
+
     begin
         testingMsg("nr.ping()")
         nr.ping()
@@ -471,37 +476,13 @@ def numTests(nr, opts)
 
     # there shouldn't be any perms now
     n = 0; m.permissions { n +=1 }
-    if n != 0
-        failedMsg("non-zero permissions, expected none")
-        return false
-    end
-    # set all the permissions for ourself. This is actually a no-op
-    # because perms don't apply to the owner; server might disallow some day?
-    allperms = [ 'readMetric', 'updateValue', 'editMetric', 'editPermissions' ]
-
-    p = {}
-    allperms.each { |x| p[x] = true }
-
-    testingMsg("Setting permissions on myself")
-    m.set_permission(p, myUser['id'])
-    n = 0; m.permissions { n +=1 }
     if n != 1
-        failedMsg("Didn't work, did not find permission we just set")
+        failedMsg("wrong number of permissions, expected one")
         return false
-    end
-
-    testingMsg("Reading back my specific permissions")
-    p2 = m.get_permission(myUser['id'])
-
-    allperms.each do |x|
-        if not p2[x]
-            failedMsg("Did not get back permission #{x}")
-            return false
-        end
     end
 
     if not nr2
-        infoMsg("skipping further perms tests because no second creds given")
+        infoMsg("skipping detailed perms tests because no second creds given")
     else
         m2 = nr2.metric(m['id'])
 
@@ -732,6 +713,10 @@ OptionParser.new do |opts|
     end
 
     opts.on("-Q", "--quick", "quick mode") { options[:quick] = true }
+
+    opts.on("-P", "--performance", "performance test") {
+       options[:perfonly] = true
+    }
     opts.on("-D", "--debug", "debug") { options[:debug] = true }
     opts.on("-V", "--varyValue VAL", "variable value") do |v|
         options[:vary] = v
