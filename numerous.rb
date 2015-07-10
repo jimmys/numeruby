@@ -153,12 +153,13 @@ class NumerousClientInternals
         #
         # and the default policy uses the "data" as a hash of parameters:
         #    :voluntary -- the threshold point for voluntary backoff
+        #    :volmaxdelay -- arbitrary maximum *voluntary delay* time
         #
         @arbitraryMaximumTries = 10
-        voluntary = { voluntary: 40}
+        voluntary = { voluntary: 40, volmaxdelay: 5}
         # you can keep the dflt throttle but just alter the voluntary param, this way:
         if throttleData and not throttle
-            voluntary = throttleData
+            voluntary = voluntary.merge(throttleData)
         end
         @throttlePolicy = [ThrottleDefault, voluntary, nil]
         if throttle
@@ -596,16 +597,52 @@ class NumerousClientInternals
         return nil     # the subclasses return (should return) their own self
     end
 
+
     #
     # The default throttle policy.
     # Invoked after the response has been received and we are supposed to
     # return true to force a retry or false to accept this response as-is.
     #
     # The policy this implements:
-    #    if we are "getting close" to our limit, arbitrarily delay ourselves.
+    #    * if "getting close" to the limit, arbitrarily delay ourselves.
+    #      See ComputeVoluntaryDelay above for details on that policy
     #
-    #    if we truly got spanked with "Too Many Requests"
-    #    then delay the amount of time the server told us to delay.
+    #    * if we truly got spanked with "Too Many Requests"
+    #      then delay the amount of time the server told us to delay.
+    #
+    # The Voluntary delay policy works like this:
+    #
+    # Given N API calls remaining and T seconds until fresh allotment,
+    # compute a N-per-T rate delay so the hard rate limit probably won't
+    # hit (there is no guarantee bcs multiple clients can be running).
+    #
+    # Example: 20 APIs remaining and 5 seconds until fresh allocation.
+    # A delay of 250msec per API ensures we (approximately) don't hit the
+    # limit. Always remember the point here is just to TRY to be NICE.
+    # It's not important to be fussy about exactness.
+    #
+    # In effect the concept is to "smear" an inevitable rate-limit delay
+    # over the tail end of the API rate allocation rather than hitting
+    # the hard limit and encountering a long (e.g., 30 second) hard delay.
+    #
+    # When there are only a few APIs left and a lot of time, this could
+    # impose long delays. E.g., rateleft 2, but 40 seconds to go until
+    # fresh. Although this "shouldn't" happen if you have a single thread
+    # using this smear algorithm, it can certainly happen with multiple
+    # threads or multiple processes all individually consuming APIs.
+    # In this scenario you're going to inevitably hit the hard cap anyway.
+    # Therefore: voluntary delay is arbitrarily capped to a parameter provided
+    # in the throttledata (set up during initialization)
+    #
+    # This has been stress-tested "in the wild" by running code doing
+    # a metric.read() in a loop; theoretically such code should run at
+    # 300 API calls per minute -- and it does, either with this voluntary
+    # throttling or without it. If you are trying to run faster than 300
+    # per minute, it's all just a question of *how* you want to experience
+    # your (ultimately server-imposed) API throttling, not *if* (or how much).
+    #
+    # Speed Limit: 300 API/minute. It's The Law. :)
+    #
     #
     # The arguments supplied to us are:
     #     nr is the Numerous
@@ -644,8 +681,8 @@ class NumerousClientInternals
     # All of this seems overly general for what amounts to "sleep sometimes"
     #
 
+
     ThrottleDefault = Proc.new do |nr, tparams, td, up|
-        rateleft = tparams[:rateRemaining]
         attempt = tparams[:attempt]    # note: is zero on very first try
         stats = tparams[:statistics]
         stats[:throttleDefaultCalls] += 1
@@ -657,30 +694,35 @@ class NumerousClientInternals
             end
         end
 
-        backarray = [ 2, 5, 15, 30, 60 ]
-        if attempt < backarray.length
-            backoff = backarray[attempt]
-        else
-            stats[:throttleMaxed] += 1
-            next false               # too many tries
-        end
-
         # if we weren't told to back off, no need to retry
         if tparams[:resultCode] != 429
+            #
             # but if we are closing in on the limit then slow ourselves down
             # note that some errors don't communicate rateleft so we have to
             # check for that as well (will be -1 here if wasn't sent to us)
             #
-            # at constructor time our "throttle data" (td) was set up with the
-            # voluntary arbitrary limit
-            if rateleft >= 0 and rateleft < td[:voluntary]
+            # the point of this policy is to protect OTHER implementations
+            # that might not be aware of rate-limiting (i.e., we're being
+            # generous here by slowing ourselves down to try to avoid
+            # reaching the actual rate limit)
+            #
+            # at constructor time our "throttle data" (td) was set up with
+            # the 'voluntary' arbitrary limit
+            nAPIs_left = tparams[:rateRemaining]
+            if nAPIs_left >= 0 and nAPIs_left < td[:voluntary]
                 stats[:throttleVoluntaryBackoff] += 1
-                # arbitrary .. 1sec if more than half left, 3 secs if less
-                if (rateleft*2) > td[:voluntary]
-                    sleep(1)
+                t = tparams[:rateReset]       # time until fresh allocation
+                if t > 0 and nAPIs_left > 0
+                    # force floating point
+                    secs_per_API = (t + 0.001) / nAPIs_left
                 else
-                    sleep(3)
+                    secs_per_API = 0.5   # arbitrary when no info
                 end
+                # arbitrary voluntary delay cap
+                dt = [td[:volmaxdelay], secs_per_API].min
+
+                stats[:throttleVoluntaryDelays] += dt
+                sleep(dt)
             end
             next false               # no retry
         end
@@ -688,6 +730,14 @@ class NumerousClientInternals
         # decide how long to delay ... we just wait for as long as the
         # server told us to (plus "backoff" seconds slop to really be sure we
         # aren't back too soon)
+        backarray = [ 0.75, 1.5, 5, 15, 45 ]
+        if attempt < backarray.length
+            backoff = backarray[attempt]
+        else
+            stats[:throttleMaxed] += 1
+            next false               # too many tries
+        end
+
         stats[:throttle429] += 1
         sleep(tparams[:rateReset] + backoff)
         next true
@@ -1125,9 +1175,8 @@ class NumerousMetric < NumerousClientInternals
     #
     # It can also be a metric's web link, e.g.:
     #     http://n.numerousapp.com/m/1x8ba7fjg72d
-    #
-    # in which case we "just know" that the tail is a base36
-    # encoding of the ID.
+    # or the "embed" (/e/ vs /m/) variant, in which case we "just know"
+    # that the tail is a base36 encoding of the ID.
     #
     # The decoding logic here makes the specific assumption that
     # the presence of a '/' indicates a non-naked metric ID. This
@@ -1155,7 +1204,7 @@ class NumerousMetric < NumerousClientInternals
             fields = id.split('/')
             if fields.length() == 1
                 actualId = fields[0]
-            elsif fields[-2] == "m"
+            elsif [ "m", "e" ].include? fields[-2]
                 actualId = fields[-1].to_i(36)
             else
                 actualId = fields[-1]
