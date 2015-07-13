@@ -223,7 +223,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150709-1.2.2+dev'
+    VersionString = '20150713-1.2.3'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -1674,7 +1674,14 @@ class NumerousMetric < NumerousClientInternals
             j['action'] = 'ADD'
         end
         if updated
-            j['updated'] = updated
+            # if you gave us a formattable time try converting it
+            begin
+                ts = updated.strftime('%Y-%m-%dT%H:%M:%S.')
+                ts += ("%03dZ" % ((updated.usec+500)/1000))
+            rescue NoMethodError      # just take your argument
+                ts = updated          # which should be a string already
+            end
+            j['updated'] = ts
         end
 
         @cachedHash = nil  # will need to refresh cache on next access
