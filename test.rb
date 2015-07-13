@@ -48,12 +48,16 @@ end
 
 # convenience function:
 #   creates a PRIVATE metric
+#   uses your label or makes one up for you
 #   accepts additional attrs
 #   automatically pushes the metric onto the given list
 #   (used to push the metric onto the "delete These" list)
 #
 #   automatically prints an info message
 def privateDeletableMetric(nr, label, pushTo, attrs:nil)
+    if not label
+        label = 'XXX-TEMP-TEST-METRIC-XXX'
+    end
     if not attrs
         attrs = { 'private' => true }
     else
@@ -319,6 +323,48 @@ def numTests(nr, opts)
     end
 
     infoMsg("server response time data: #{nr.statistics[:serverResponseTimes]}")
+
+    # test writing with specific datapoint timestamps
+    mx = privateDeletableMetric(nr, nil, $deleteTheseMetrics)
+    testingMsg("setting up write w/timestamps tests")
+    t0= Time.now()
+    testval = 99
+    r = mx.write(testval, dictionary:true)
+    ids = { testval => r['id'] }
+    testvector = [ 55, 44, 88, 66, 33 ]
+    testvectormax = 88 # XXX we just know this
+
+    testvector.each do | i |
+        tstr = ('2001-01-01T10:00:01.%03dZ' % i)
+        r = mx.write(i, updated:tstr, dictionary:true)
+        ids[i] = r['id']
+    end
+
+    # since all those were earlier than the testval, value should be testval
+    if mx.read() != testval
+        failedMsg("Did not get #{testval} back")
+        return false
+    end
+
+    # delete the testval we wrote, leaving the timestamped values only
+    mx.eventDelete(ids[testval])
+
+    # it should be whatever is the max in the test vector now
+    if mx.read() != testvectormax
+        failedMsg("Did not get expected #{testvectormax} value")
+        return false
+    end
+
+    # ok all that worked, so now try one more thing - write a value with
+    # no updated timestamp, and write a different value with an older time
+    # (set above so earlier than now) and make sure the value is the first
+    # write (newer) not the second write (older)
+    mx.write(17)              # no timestamp, just a value
+    mx.write(42, updated:t0)  # should be older value
+    if mx.read() != 17
+        failedMsg("Older time at #{t0} replaced most recent write")
+        return false
+    end
 
     # test error ... first turn off notifications (doh!)
     testingMsg("turning off error notifications")
