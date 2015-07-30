@@ -223,7 +223,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150713-1.2.3'
+    VersionString = '20150730-1.2.4'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -791,7 +791,7 @@ class Numerous  < NumerousClientInternals
     APIInfo = {
       # POST to this to create a metric
       create: {
-          path: '/v1/metrics',
+          path: '/v2/metrics',
           POST: { successCodes: [ 201 ] }
       },
 
@@ -811,14 +811,14 @@ class Numerous  < NumerousClientInternals
 
       # user info
       user: {
-          path: '/v1/users/%{userId}',
+          path: '/v2/users/%{userId}',
           defaults: { userId: 'me' },
           photo: { appendPath: '/photo', httpMethod: :POST, successCodes: [201] }
       },
 
       # the most-popular metrics list
       popular: {
-          path: '/v1/metrics/popular?count=%{count}',
+          path: '/v2/metrics/popular?count=%{count}',
           defaults: { count: 10 }
           # no entry needed for GET because no special codes etc
       }
@@ -1240,10 +1240,7 @@ class NumerousMetric < NumerousClientInternals
     APIInfo = {
       # read/update/delete a metric
       metric: {
-        path: '/v1/metrics/%{metricId}' ,
-        PUT: {     # note that PUT has a /v2 interface but GET does not (yet?).
-            path: '/v2/metrics/%{metricId}'
-        },
+        path: '/v2/metrics/%{metricId}' ,
         DELETE: {
             successCodes: [ 204 ]
         }
@@ -1251,7 +1248,7 @@ class NumerousMetric < NumerousClientInternals
 
       # you can GET or POST the events collection
       events: {
-        path: '/v1/metrics/%{metricId}/events',
+        path: '/v2/metrics/%{metricId}/events',
         GET: {
             next: 'nextURL',
             list: 'events',
@@ -1264,7 +1261,7 @@ class NumerousMetric < NumerousClientInternals
       # and you can GET or DELETE an individual event
       # (no entry made for GET because all standard parameters on that one)
       event: {
-        path: '/v1/metrics/%{metricId}/events/%{eventID}',
+        path: '/v2/metrics/%{metricId}/events/%{eventID}',
         DELETE: {
             successCodes: [ 204 ]     # No Content is the expected return
         }
@@ -1313,7 +1310,7 @@ class NumerousMetric < NumerousClientInternals
 
       # subscriptions on a particular metric
       subscription: {
-        path: '/v1/metrics/%{metricId}/subscriptions/%{userId}',
+        path: '/v2/metrics/%{metricId}/subscriptions/%{userId}',
         defaults: {
             userId: 'me'           # default userId for yourself ("me")
         },
@@ -1323,7 +1320,7 @@ class NumerousMetric < NumerousClientInternals
       },
 
       photo: {
-        path: '/v1/metrics/%{metricId}/photo',
+        path: '/v2/metrics/%{metricId}/photo',
         POST: {
             successCodes: [ 201 ]
         },
@@ -1334,7 +1331,7 @@ class NumerousMetric < NumerousClientInternals
 
       # permissions collection
       permissionsCollection: {
-        path: '/v1/metrics/%{metricId}/permissions',
+        path: '/v2/metrics/%{metricId}/permissions',
         # GET the permissions collection
         GET: {
             next: 'nextURL',
@@ -1344,7 +1341,7 @@ class NumerousMetric < NumerousClientInternals
 
       # individual permissions : GET, PUT, DELETE
       permission: {
-        path: '/v1/metrics/%{metricId}/permissions/%{userId}',
+        path: '/v2/metrics/%{metricId}/permissions/%{userId}',
         defaults: {
             userId: 'me'            # default userId meaning "myself"
         },
