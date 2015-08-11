@@ -223,7 +223,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150730-1.2.4'
+    VersionString = '20150811-1.2.4+++dev'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -1254,6 +1254,10 @@ class NumerousMetric < NumerousClientInternals
             list: 'events',
             dupFilter: 'id'
         },
+        at: {           # variation for finding specific event by time stamp
+            appendPath: '/at?t=%{timestr}',
+            httpMethod: :GET
+        },
         POST: {
             successCodes: [ 201 ]
         }
@@ -1533,11 +1537,34 @@ class NumerousMetric < NumerousClientInternals
     # Obtain a specific metric event from the server
     #
     # @param [String] eId The specific event ID
+    # @param [String] before
+    #   Timestamp. Do not specify eId with this. You can also
+    #   also provide this as a strftime-able date/time object.
     # @return [Hash] The string-key hash of the event
     # @raise [NumerousError] Not found (.code will be 404)
     #
-    def event(eId)
-        api = getAPI(:event, :GET, {eventID:eId})
+    def event(eId=nil, before:nil)
+        if eId and before
+            raise ArgumentError
+        elsif eId
+            api = getAPI(:event, :GET, {eventID:eId})
+        else         # the "before" variant
+            # if you gave us a formattable time try converting it
+            begin
+                ts = before.strftime('%Y-%m-%dT%H:%M:%S.')
+                # note: we truncate, rather than round, the microseconds
+                # for simplicity (in case usec is 999900 for example).
+                begin
+                    ts += ("%03dZ" % (before.usec/1000))
+                rescue NoMethodError   # in case no usec method (?)
+                    ts += '000Z'
+                end
+            rescue NoMethodError      # just take your argument
+                ts = before           # which should be a string already
+            end
+            api = getAPI(:events, :at, {timestr:before})
+        end
+
         return @nr.simpleAPI(api)
     end
 
@@ -1674,7 +1701,13 @@ class NumerousMetric < NumerousClientInternals
             # if you gave us a formattable time try converting it
             begin
                 ts = updated.strftime('%Y-%m-%dT%H:%M:%S.')
-                ts += ("%03dZ" % ((updated.usec+500)/1000))
+                # note: we truncate, rather than round, the microseconds
+                # for simplicity (in case usec is 999900 for example).
+                begin
+                    ts += ("%03dZ" % (updated.usec/1000))
+                rescue NoMethodError   # in case no usec method (?)
+                    ts += '000Z'
+                end
             rescue NoMethodError      # just take your argument
                 ts = updated          # which should be a string already
             end

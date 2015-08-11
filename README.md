@@ -8,6 +8,9 @@ Packaged as a gem under the name "numerousapp" on rubygems.org
 
 The source here on github is the current/newest; what you get on rubygems (gem install) is the stable "released" version and so tends to lag behind the github code. Choose accordingly.
 
+### New in 1.2.5
+* event() method now supports 'at' API (lookup via timestamps)
+
 ### New in 1.2.4
 All server API endpoints converted to /v2 URLs. This is a minor update because there are no semantic changes. The few APIs that had real differences between /v1 and /v2 had been updated a long time ago, but the numerous server did not support /v2 endpoints for all APIs (i.e., the ones that had no reason to "go to" /v2 still had only /v1 endpoints). Numerous just activated their new server that now supports /v2 endpoints across the board; accordingly, 1.6.3 now uses the /v2 endpoints for everything. It's just a "spelling" change in the underlying endpoints.
 

@@ -327,17 +327,18 @@ def numTests(nr, opts)
     # test writing with specific datapoint timestamps
     mx = privateDeletableMetric(nr, nil, $deleteTheseMetrics)
     testingMsg("setting up write w/timestamps tests")
-    t0= Time.now()
+    t0= Time.now()   # NOTE: this is a time BEFORE the naked write below
+    sleep(2)         # on the off chance time slew between us and server
     testval = 99
-    r = mx.write(testval, dictionary:true)
-    ids = { testval => r['id'] }
+    r = mx.write(testval, dictionary:true)   # naked (not w/updated) write
+    ids = { testval => r }
     testvector = [ 55, 44, 88, 66, 33 ]
     testvectormax = 88 # XXX we just know this
 
     testvector.each do | i |
         tstr = ('2001-01-01T10:00:01.%03dZ' % i)
         r = mx.write(i, updated:tstr, dictionary:true)
-        ids[i] = r['id']
+        ids[i] = r
     end
 
     # since all those were earlier than the testval, value should be testval
@@ -346,8 +347,31 @@ def numTests(nr, opts)
         return false
     end
 
+    # while we're here, test readback using event id
+    ids.each do | v, we |
+        id = we['id']
+        testingMsg("Reading back #{id} expecting #{v}")
+        e = mx.event(id)
+        if e['value'] != v
+            failedMsg("Got #{e['value']} instead")
+            return false
+        end
+    end
+
+    # and test readback using event timestamp
+    ids.each do | v, we |
+        ts = we['updated']
+        testingMsg("Reading back @ #{ts} expecting #{v}")
+        e = mx.event(before:ts)
+        if e['value'] != v
+            failedMsg("Got #{e['value']} instead")
+            return false
+        end
+    end
+
+
     # delete the testval we wrote, leaving the timestamped values only
-    mx.eventDelete(ids[testval])
+    mx.eventDelete(ids[testval]['id'])
 
     # it should be whatever is the max in the test vector now
     if mx.read() != testvectormax
