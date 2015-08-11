@@ -223,7 +223,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150811-1.2.5'
+    VersionString = '20150811-1.2.6'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -1562,7 +1562,7 @@ class NumerousMetric < NumerousClientInternals
             rescue NoMethodError      # just take your argument
                 ts = before           # which should be a string already
             end
-            api = getAPI(:events, :at, {timestr:before})
+            api = getAPI(:events, :at, {timestr:ts})
         end
 
         return @nr.simpleAPI(api)
