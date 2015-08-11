@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name         = 'numerousapp'
-  s.version      = '1.2.5'
+  s.version      = '1.2.6'
   s.required_ruby_version = '>= 2.0.0'
   s.date         = '2015-08-11'
   s.summary      = 'NumerousApp API'
