@@ -121,7 +121,7 @@ class NumerousClientInternals
     #    @return [String] FQDN of the target NumerousApp server.
     #
     # @!attribute [r] debugLevel
-    #    @return [Fixnum] Current debugging level; use debug() method to change.
+    #    @return [Fixnum] Current debugging level; change via debug() method
     #
     def initialize(apiKey=nil, server:'api.numerousapp.com',
                            throttle:nil, throttleData:nil)
@@ -142,11 +142,12 @@ class NumerousClientInternals
         @filterDuplicates = true     # see discussion elsewhere
         @need_restart = true         # port will be opened in simpleAPI
 
-        # throttling.
-        # The arbitraryMaximum is just that: under no circumstances will we retry
+        # Throttling:
+        #
+        # arbitraryMaximum is just that: under no circumstances will we retry
         # any particular request more than that. Tough noogies.
         #
-        # the throttlePolicy "tuple" is:
+        # throttlePolicy "tuple" is:
         #     [ 0 ] - Proc
         #     [ 1 ] - specific data for Proc
         #     [ 2 ] - "up" tuple for chained policy
@@ -157,7 +158,8 @@ class NumerousClientInternals
         #
         @arbitraryMaximumTries = 10
         voluntary = { voluntary: 40, volmaxdelay: 5}
-        # you can keep the dflt throttle but just alter the voluntary param, this way:
+        # you can keep the dflt throttle but just alter the voluntary
+        # parameters, this way:
         if throttleData and not throttle
             voluntary = voluntary.merge(throttleData)
         end
@@ -166,7 +168,7 @@ class NumerousClientInternals
             @throttlePolicy = [throttle, throttleData, @throttlePolicy]
         end
 
-        @statistics = Hash.new { |h, k| h[k] = 0 }  # statistics are "infotainment"
+        @statistics = Hash.new { |h, k| h[k] = 0 }  # stats are "infotainment"
         @debugLevel = 0
 
     end
@@ -179,7 +181,7 @@ class NumerousClientInternals
     #
     # @return [String] Human-appropriate string representation.
     def to_s()
-        oid = (2 * self.object_id).to_s(16)  # XXX "2*" makes it match native to_s
+        oid = (2 * self.object_id).to_s(16)  # XXX "2*" matches native to_s
         return "<Numerous {#{@serverName}} @ 0x#{oid}>"
     end
 
@@ -242,7 +244,7 @@ class NumerousClientInternals
         rslt = {}
         rslt[:httpMethod] = whichOp
 
-        # Build the substitutions from the defaults (if any) and non-nil kwargs.
+        # Build the substitutions from defaults (if any) and non-nil kwargs.
         # Note: we are carefully making copies of the underlying dictionaries
         #       so you get your own private context returned to you
         substitutions = (info[:defaults]||{}).clone
@@ -605,7 +607,6 @@ class NumerousClientInternals
     #
     # The policy this implements:
     #    * if "getting close" to the limit, arbitrarily delay ourselves.
-    #      See ComputeVoluntaryDelay above for details on that policy
     #
     #    * if we truly got spanked with "Too Many Requests"
     #      then delay the amount of time the server told us to delay.
