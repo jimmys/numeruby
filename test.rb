@@ -196,7 +196,7 @@ def numTests(nr, opts)
     # write a value see if it gets there
 
     testingMsg("Write #{testVary}")
-    m.write testVary
+    e0 = m.write(testVary,dictionary:true)
     if m.read != testVary
         failedMsg("Wrong value read back #{m.read} should have been #{testVary}")
         return false
@@ -207,7 +207,29 @@ def numTests(nr, opts)
         return false
     end
 
+    # write the same value again but with onlyIf being IGNORE.
+    # should do nothing.
+    testingMsg("Writing #{testVary} again with onlyIf='IGNORE'")
+    m.write testVary, onlyIf:'IGNORE'
 
+    # one more - test bogus onlyIf
+    testingMsg("write with onlyIf:bozo")
+    begin
+        m.write(testVary, onlyIf:'bozo')
+        failedMsg('onlyIf:bozo did not cause exception')
+        return false
+    rescue ArgumentError
+
+    end
+
+    # after all that, the "e0" event written first should still be
+    # the topmost event on the metric. Let's see.
+    testingMsg("Verifying onlyIf worked")
+    id = m.events { |e| break e['id'] }    # haha/wow what a way to say this
+    if e0['id'] != id
+        failedMsg("onlyIf's didn't prevent event creation")
+        return false
+    end
     testingMsg("writing a comment")
 
     cmt = "This be a righteously commentatious comment"

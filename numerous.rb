@@ -225,7 +225,7 @@ class NumerousClientInternals
 
     protected
 
-    VersionString = '20150811-1.2.6'
+    VersionString = '20150903-1.2.6+++dev'
 
     MethMap = {
         GET: Net::HTTP::Get,
@@ -1661,10 +1661,13 @@ class NumerousMetric < NumerousClientInternals
     #
     # @param [Fixnum|Float] newval Required. Value to be written.
     #
-    # @param [Boolean] onlyIf
-    #   Optional (keyword arg). Only creates an event at the server
-    #   if the newval is different from the current value. Raises
-    #   NumerousMetricConflictError if there is no change in value.
+    # @param [Boolean|String] onlyIf
+    #   Optional (keyword arg). Default is false.
+    #   If this is true or the string 'IGNORE' then the server only creates
+    #   a metric event if the newval is different from the current value.
+    #   If onlyIf=true then this RaisesNumerousMetricConflictError if there
+    #   is no change in value. If onlyIf is 'IGNORE' then the "conflict" error
+    #   is silently ignored (probably the more common usage case).
     #
     # @param [Boolean] add
     #   Optional (keyword arg). Sends the "action: ADD"	attribute which
@@ -1692,7 +1695,11 @@ class NumerousMetric < NumerousClientInternals
     #
     def write(newval, onlyIf:false, add:false, dictionary:false, updated:nil)
         j = { 'value' => newval }
-        if onlyIf
+        if onlyIf != false
+            if not [ true, 'IGNORE' ].include? onlyIf
+                # onlyIf must be false, true, or "IGNORE"
+                raise ArgumentError, 'onlyIf must be false, true, or "IGNORE"'
+            end
             j['onlyIfChanged'] = true
         end
         if add
@@ -1723,8 +1730,14 @@ class NumerousMetric < NumerousClientInternals
         rescue NumerousError => e
             # if onlyIf was specified and the error is "conflict"
             # (meaning: no change), raise ConflictError specifically
+            # or ignore it if you specified onlyIf="IGNORE"
             if onlyIf and e.code == 409
-                raise NumerousMetricConflictError.new("No Change", e.details)
+                if onlyIf != 'IGNORE'
+                    raise NumerousMetricConflictError.new("No Change", e.details)
+                else
+                    # forge a pseudo-result because you asked for it
+                    v = { 'value'=>newval, 'unchanged'=>true }
+                end
             else
                 raise e        # never mind, plain NumerousError is fine
             end
