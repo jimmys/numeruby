@@ -8,6 +8,9 @@ Packaged as a gem under the name "numerousapp" on rubygems.org
 
 The source here on github is the current/newest; what you get on rubygems (gem install) is the stable "released" version and so tends to lag behind the github code. Choose accordingly.
 
+### New in 1.2.7
+* onlyIf in write() can be 'IGNORE' to do the "only if changed" and ignore any conflict error from the server.
+
 ### New in 1.2.6
 * event() method now supports 'at' API (lookup via timestamps)
 
